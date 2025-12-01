@@ -5,56 +5,169 @@ import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
 import {ERC1155} from "@openzeppelin/contracts/token/ERC1155/ERC1155.sol";
 import {ERC1155Supply} from "@openzeppelin/contracts/token/ERC1155/extensions/ERC1155Supply.sol";
 import {ERC1155URIStorage} from "@openzeppelin/contracts/token/ERC1155/extensions/ERC1155URIStorage.sol";
+import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
+import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-/// @title Ornament1155
-/// @notice ERC1155 버전 오너먼트, 17개 타입 등의 동일 아이템을 대량 발행/전송하기 위한 용도.
-contract OrnamentNFT is ERC1155, ERC1155Supply, ERC1155URIStorage, AccessControl {
-    bytes32 public constant MINTER_ROLE = keccak256("MINTER_ROLE");
-    mapping(uint256 => bool) private _uriSet;
+interface ITreeNFT {
+    function ownerOf(uint256 tokenId) external view returns (address);
+    function addOrnamentToTree(uint256 treeId, uint256 ornamentId, address caller) external;
+}
 
-    error UriAlreadySet(uint256 tokenId);
-    error ArrayLengthMismatch();
+contract OrnamentNFT is ERC1155, ERC1155Supply, ERC1155URIStorage, AccessControl, EIP712 {
+    using SafeERC20 for IERC20;
 
-    constructor(string memory baseUri) ERC1155(baseUri) {
+    uint256 public constant CUSTOM_TOKEN_START = 1001;
+
+    struct OrnamentMintPermit {
+        address to;
+        uint256 tokenId;
+        uint256 treeId;
+        uint256 deadline;
+        uint256 nonce;
+    }
+
+    bytes32 private constant ORNAMENT_MINT_PERMIT_TYPEHASH = keccak256(
+        "OrnamentMintPermit(address to,uint256 tokenId,uint256 treeId,uint256 deadline,uint256 nonce)"
+    );
+
+    address public signer;
+    address public treeNFT;
+    IERC20 public paymentToken;
+    uint256 public mintFee;
+    uint256 public nextCustomTokenId;
+
+    mapping(address => uint256) public nonces;
+    mapping(uint256 => bool) public ornamentRegistered;
+
+    error InvalidSignature();
+    error ExpiredDeadline();
+    error InvalidNonce();
+    error OrnamentNotRegistered();
+    error OrnamentAlreadyRegistered();
+    error InvalidTokenId();
+    error NotTreeOwner();
+    error PaymentTokenNotSet();
+    error MintFeeNotSet();
+
+    event OrnamentMinted(uint256 indexed tokenId, address indexed to, uint256 indexed treeId);
+    event CustomOrnamentMinted(uint256 indexed tokenId, address indexed to, uint256 indexed treeId, string uri);
+    event SignerUpdated(address indexed oldSigner, address indexed newSigner);
+    event OrnamentRegistered(uint256 indexed tokenId, string uri);
+    event OrnamentUriUpdated(uint256 indexed tokenId, string uri);
+    event PaymentTokenUpdated(address indexed token);
+    event MintFeeUpdated(uint256 fee);
+    event FeesWithdrawn(address indexed to, uint256 amount);
+
+    constructor(
+        address _signer,
+        address _treeNFT,
+        string memory baseUri
+    ) ERC1155(baseUri) EIP712("ZetaOrnament", "1") {
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
-        _grantRole(MINTER_ROLE, msg.sender);
+        signer = _signer;
+        treeNFT = _treeNFT;
+        nextCustomTokenId = CUSTOM_TOKEN_START;
+        emit SignerUpdated(address(0), _signer);
     }
 
-    function _setUriIfProvided(uint256 tokenId, string memory uri_) internal {
-        if (bytes(uri_).length == 0) return;
-        if (_uriSet[tokenId]) revert UriAlreadySet(tokenId);
-        _setURI(tokenId, uri_);
-        _uriSet[tokenId] = true;
+    function mintWithSignature(OrnamentMintPermit calldata permit, bytes calldata signature) external {
+        if (block.timestamp > permit.deadline) revert ExpiredDeadline();
+        if (permit.nonce != nonces[permit.to]) revert InvalidNonce();
+        if (!ornamentRegistered[permit.tokenId]) revert OrnamentNotRegistered();
+
+        bytes32 structHash = keccak256(
+            abi.encode(
+                ORNAMENT_MINT_PERMIT_TYPEHASH,
+                permit.to,
+                permit.tokenId,
+                permit.treeId,
+                permit.deadline,
+                permit.nonce
+            )
+        );
+        bytes32 hash = _hashTypedDataV4(structHash);
+        address recovered = ECDSA.recover(hash, signature);
+
+        if (recovered != signer) revert InvalidSignature();
+
+        nonces[permit.to]++;
+        _mint(permit.to, permit.tokenId, 1, "");
+
+        // Add ornament to tree (permit.to is the tree owner)
+        ITreeNFT(treeNFT).addOrnamentToTree(permit.treeId, permit.tokenId, permit.to);
+
+        emit OrnamentMinted(permit.tokenId, permit.to, permit.treeId);
     }
 
-    /// @notice 단일 타입을 민트. uri_가 비어있지 않으면 해당 tokenId의 URI를 설정.
-    function mintOrnament(address to, uint256 tokenId, uint256 amount, string memory uri_)
-        external
-        onlyRole(MINTER_ROLE)
-    {
-        _setUriIfProvided(tokenId, uri_);
-        _mint(to, tokenId, amount, "");
+    function mintCustomOrnament(uint256 treeId, string calldata ornamentUri) external {
+        if (address(paymentToken) == address(0)) revert PaymentTokenNotSet();
+        if (mintFee == 0) revert MintFeeNotSet();
+
+        // Check tree ownership
+        if (ITreeNFT(treeNFT).ownerOf(treeId) != msg.sender) revert NotTreeOwner();
+
+        // Collect payment
+        paymentToken.safeTransferFrom(msg.sender, address(this), mintFee);
+
+        // Mint custom ornament
+        uint256 tokenId = nextCustomTokenId++;
+        _mint(msg.sender, tokenId, 1, "");
+        _setURI(tokenId, ornamentUri);
+        ornamentRegistered[tokenId] = true;
+
+        // Add ornament to tree
+        ITreeNFT(treeNFT).addOrnamentToTree(treeId, tokenId, msg.sender);
+
+        emit CustomOrnamentMinted(tokenId, msg.sender, treeId, ornamentUri);
     }
 
-    /// @notice 여러 타입을 한 번에 민트. uris가 비어있지 않다면 ids와 길이가 같아야 함.
-    function mintBatchOrnaments(address to, uint256[] memory ids, uint256[] memory amounts, string[] memory uris)
-        external
-        onlyRole(MINTER_ROLE)
-    {
-        if (ids.length != amounts.length) revert ArrayLengthMismatch();
-        if (uris.length > 0) {
-            if (uris.length != ids.length) revert ArrayLengthMismatch();
-            // 단순 중복 체크(O(n^2)).
-            for (uint256 i = 0; i < ids.length; i++) {
-                for (uint256 j = i + 1; j < ids.length; j++) {
-                    if (ids[i] == ids[j]) revert ArrayLengthMismatch();
-                }
-            }
-            for (uint256 i = 0; i < ids.length; i++) {
-                _setUriIfProvided(ids[i], uris[i]);
-            }
+    function setSigner(address _signer) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        address oldSigner = signer;
+        signer = _signer;
+        emit SignerUpdated(oldSigner, _signer);
+    }
+
+    function setTreeNFT(address _treeNFT) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        treeNFT = _treeNFT;
+    }
+
+    function registerOrnament(uint256 tokenId, string calldata ornamentUri) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (tokenId >= CUSTOM_TOKEN_START) revert InvalidTokenId();
+        if (ornamentRegistered[tokenId]) revert OrnamentAlreadyRegistered();
+
+        ornamentRegistered[tokenId] = true;
+        if (bytes(ornamentUri).length > 0) {
+            _setURI(tokenId, ornamentUri);
         }
-        _mintBatch(to, ids, amounts, "");
+        emit OrnamentRegistered(tokenId, ornamentUri);
+    }
+
+    function setOrnamentUri(uint256 tokenId, string calldata ornamentUri) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (!ornamentRegistered[tokenId]) revert OrnamentNotRegistered();
+        _setURI(tokenId, ornamentUri);
+        emit OrnamentUriUpdated(tokenId, ornamentUri);
+    }
+
+    function setPaymentToken(address token) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        paymentToken = IERC20(token);
+        emit PaymentTokenUpdated(token);
+    }
+
+    function setMintFee(uint256 fee) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        mintFee = fee;
+        emit MintFeeUpdated(fee);
+    }
+
+    function withdrawFees(address to) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        uint256 balance = paymentToken.balanceOf(address(this));
+        paymentToken.safeTransfer(to, balance);
+        emit FeesWithdrawn(to, balance);
+    }
+
+    function DOMAIN_SEPARATOR() external view returns (bytes32) {
+        return _domainSeparatorV4();
     }
 
     // ===== Overrides =====
