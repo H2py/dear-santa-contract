@@ -344,4 +344,70 @@ contract OrnamentNFTTest is Test {
         vm.expectRevert(OrnamentNFT.PaymentTokenNotSet.selector);
         newOrnament.mintCustomOrnament(TREE_ID, "ipfs://fail");
     }
+
+    // ============ Batch Registration ============
+    function testBatchRegisterOrnaments() public {
+        uint256[] memory tokenIds = new uint256[](3);
+        tokenIds[0] = 10;
+        tokenIds[1] = 11;
+        tokenIds[2] = 12;
+
+        string[] memory uris = new string[](3);
+        uris[0] = "ipfs://ornament/10";
+        uris[1] = "ipfs://ornament/11";
+        uris[2] = "ipfs://ornament/12";
+
+        vm.prank(admin);
+        ornament.registerOrnaments(tokenIds, uris);
+
+        assertTrue(ornament.ornamentRegistered(10));
+        assertTrue(ornament.ornamentRegistered(11));
+        assertTrue(ornament.ornamentRegistered(12));
+        assertEq(ornament.uri(10), "ipfs://ornament/10");
+        assertEq(ornament.uri(11), "ipfs://ornament/11");
+        assertEq(ornament.uri(12), "ipfs://ornament/12");
+    }
+
+    function testRevertBatchRegisterWithMismatchedArrays() public {
+        uint256[] memory tokenIds = new uint256[](2);
+        tokenIds[0] = 20;
+        tokenIds[1] = 21;
+
+        string[] memory uris = new string[](3);
+        uris[0] = "ipfs://a";
+        uris[1] = "ipfs://b";
+        uris[2] = "ipfs://c";
+
+        vm.prank(admin);
+        vm.expectRevert(OrnamentNFT.ArrayLengthMismatch.selector);
+        ornament.registerOrnaments(tokenIds, uris);
+    }
+
+    function testRevertBatchRegisterWithCustomTokenId() public {
+        uint256[] memory tokenIds = new uint256[](2);
+        tokenIds[0] = 30;
+        tokenIds[1] = 1001; // Custom range (invalid)
+
+        string[] memory uris = new string[](2);
+        uris[0] = "ipfs://a";
+        uris[1] = "ipfs://b";
+
+        vm.prank(admin);
+        vm.expectRevert(OrnamentNFT.InvalidTokenId.selector);
+        ornament.registerOrnaments(tokenIds, uris);
+    }
+
+    function testRevertBatchRegisterWithDuplicateInBatch() public {
+        uint256[] memory tokenIds = new uint256[](2);
+        tokenIds[0] = 40;
+        tokenIds[1] = 40; // Duplicate
+
+        string[] memory uris = new string[](2);
+        uris[0] = "ipfs://a";
+        uris[1] = "ipfs://b";
+
+        vm.prank(admin);
+        vm.expectRevert(OrnamentNFT.OrnamentAlreadyRegistered.selector);
+        ornament.registerOrnaments(tokenIds, uris);
+    }
 }

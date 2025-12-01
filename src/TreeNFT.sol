@@ -94,6 +94,20 @@ contract TreeNFT is ERC721Enumerable, ERC721URIStorage, AccessControl, EIP712 {
     }
 
     function registerBackground(uint256 backgroundId, string calldata uri) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _registerBackground(backgroundId, uri);
+    }
+
+    function registerBackgrounds(
+        uint256[] calldata backgroundIds,
+        string[] calldata uris
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (backgroundIds.length != uris.length) revert ArrayLengthMismatch();
+        for (uint256 i = 0; i < backgroundIds.length; i++) {
+            _registerBackground(backgroundIds[i], uris[i]);
+        }
+    }
+
+    function _registerBackground(uint256 backgroundId, string calldata uri) internal {
         if (backgroundRegistered[backgroundId]) revert BackgroundAlreadyRegistered();
         backgroundRegistered[backgroundId] = true;
         backgroundUri[backgroundId] = uri;

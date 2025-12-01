@@ -50,6 +50,7 @@ contract OrnamentNFT is ERC1155, ERC1155Supply, ERC1155URIStorage, AccessControl
     error NotTreeOwner();
     error PaymentTokenNotSet();
     error MintFeeNotSet();
+    error ArrayLengthMismatch();
 
     event OrnamentMinted(uint256 indexed tokenId, address indexed to, uint256 indexed treeId);
     event CustomOrnamentMinted(uint256 indexed tokenId, address indexed to, uint256 indexed treeId, string uri);
@@ -134,6 +135,20 @@ contract OrnamentNFT is ERC1155, ERC1155Supply, ERC1155URIStorage, AccessControl
     }
 
     function registerOrnament(uint256 tokenId, string calldata ornamentUri) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        _registerOrnament(tokenId, ornamentUri);
+    }
+
+    function registerOrnaments(
+        uint256[] calldata tokenIds,
+        string[] calldata uris
+    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (tokenIds.length != uris.length) revert ArrayLengthMismatch();
+        for (uint256 i = 0; i < tokenIds.length; i++) {
+            _registerOrnament(tokenIds[i], uris[i]);
+        }
+    }
+
+    function _registerOrnament(uint256 tokenId, string calldata ornamentUri) internal {
         if (tokenId >= CUSTOM_TOKEN_START) revert InvalidTokenId();
         if (ornamentRegistered[tokenId]) revert OrnamentAlreadyRegistered();
 

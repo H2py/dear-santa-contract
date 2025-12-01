@@ -311,6 +311,58 @@ contract TreeNFTTest is Test {
         tree.registerBackground(BACKGROUND_ID, "ipfs://dup");
     }
 
+    // ============ Batch Registration ============
+    function testBatchRegisterBackgrounds() public {
+        uint256[] memory bgIds = new uint256[](3);
+        bgIds[0] = 200;
+        bgIds[1] = 201;
+        bgIds[2] = 202;
+
+        string[] memory uris = new string[](3);
+        uris[0] = "ipfs://background/200";
+        uris[1] = "ipfs://background/201";
+        uris[2] = "ipfs://background/202";
+
+        vm.prank(admin);
+        tree.registerBackgrounds(bgIds, uris);
+
+        assertTrue(tree.backgroundRegistered(200));
+        assertTrue(tree.backgroundRegistered(201));
+        assertTrue(tree.backgroundRegistered(202));
+        assertEq(tree.backgroundUri(200), "ipfs://background/200");
+        assertEq(tree.backgroundUri(201), "ipfs://background/201");
+        assertEq(tree.backgroundUri(202), "ipfs://background/202");
+    }
+
+    function testRevertBatchRegisterWithMismatchedArrays() public {
+        uint256[] memory bgIds = new uint256[](2);
+        bgIds[0] = 300;
+        bgIds[1] = 301;
+
+        string[] memory uris = new string[](3);
+        uris[0] = "ipfs://a";
+        uris[1] = "ipfs://b";
+        uris[2] = "ipfs://c";
+
+        vm.prank(admin);
+        vm.expectRevert(TreeNFT.ArrayLengthMismatch.selector);
+        tree.registerBackgrounds(bgIds, uris);
+    }
+
+    function testRevertBatchRegisterWithDuplicateInBatch() public {
+        uint256[] memory bgIds = new uint256[](2);
+        bgIds[0] = 400;
+        bgIds[1] = 400; // Duplicate
+
+        string[] memory uris = new string[](2);
+        uris[0] = "ipfs://a";
+        uris[1] = "ipfs://b";
+
+        vm.prank(admin);
+        vm.expectRevert(TreeNFT.BackgroundAlreadyRegistered.selector);
+        tree.registerBackgrounds(bgIds, uris);
+    }
+
     // ============ Helper ============
     function _mintTreeForUser(address to, uint256 treeId) internal {
         uint256 deadline = block.timestamp + 1 hours;
