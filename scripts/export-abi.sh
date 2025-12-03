@@ -1,22 +1,30 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-TREE_ABI_SRC="$ROOT_DIR/out/TreeNFT.sol/TreeNFT.json"
-TREE_ABI_DEST="$ROOT_DIR/../src/abi/tree.json"
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
-ORN_ABI_SRC="$ROOT_DIR/out/OrnamentNFT.sol/OrnamentNFT.json"
-ORN_ABI_DEST="$ROOT_DIR/../src/abi/ornament.json"
+ABI_DIR="$PROJECT_ROOT/abi"
+
+TREE_ABI_SRC="$PROJECT_ROOT/out/TreeNFT.sol/TreeNFT.json"
+TREE_ABI_DEST="$ABI_DIR/tree-abi.json"
+
+ORN_ABI_SRC="$PROJECT_ROOT/out/OrnamentNFT.sol/OrnamentNFT.json"
+ORN_ABI_DEST="$ABI_DIR/ornament-abi.json"
+
+if ! command -v jq &> /dev/null; then
+  echo "jq is required. Install with 'brew install jq'" >&2
+  exit 1
+fi
 
 if [[ ! -f "$TREE_ABI_SRC" || ! -f "$ORN_ABI_SRC" ]]; then
   echo "ABI not found. Run 'forge build' first." >&2
   exit 1
 fi
 
-mkdir -p "$(dirname "$TREE_ABI_DEST")"
-cp "$TREE_ABI_SRC" "$TREE_ABI_DEST"
-echo "Copied Tree ABI to $TREE_ABI_DEST"
+mkdir -p "$ABI_DIR"
 
-mkdir -p "$(dirname "$ORN_ABI_DEST")"
-cp "$ORN_ABI_SRC" "$ORN_ABI_DEST"
-echo "Copied Ornament ABI to $ORN_ABI_DEST"
+jq '.abi' "$TREE_ABI_SRC" > "$TREE_ABI_DEST"
+echo "Exported Tree ABI to $TREE_ABI_DEST"
+
+jq '.abi' "$ORN_ABI_SRC" > "$ORN_ABI_DEST"
+echo "Exported Ornament ABI to $ORN_ABI_DEST"

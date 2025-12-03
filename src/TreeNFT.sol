@@ -1,14 +1,27 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.24;
 
-import {AccessControl} from "@openzeppelin/contracts/access/AccessControl.sol";
-import {ERC721} from "@openzeppelin/contracts/token/ERC721/ERC721.sol";
-import {ERC721Enumerable} from "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
-import {ERC721URIStorage} from "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
-import {EIP712} from "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
+import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
+import {ERC721Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC721/ERC721Upgradeable.sol";
+import {ERC721EnumerableUpgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC721/extensions/ERC721EnumerableUpgradeable.sol";
+import {ERC721URIStorageUpgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC721/extensions/ERC721URIStorageUpgradeable.sol";
+import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
+import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
+import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import {IERC1155} from "@openzeppelin/contracts/token/ERC1155/IERC1155.sol";
+import {IERC1155Receiver} from "@openzeppelin/contracts/token/ERC1155/IERC1155Receiver.sol";
+import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 
-contract TreeNFT is ERC721Enumerable, ERC721URIStorage, AccessControl, EIP712 {
+contract TreeNFT is 
+    Initializable,
+    ERC721EnumerableUpgradeable,
+    ERC721URIStorageUpgradeable,
+    AccessControlUpgradeable,
+    EIP712Upgradeable,
+    UUPSUpgradeable,
+    IERC1155Receiver 
+{
     uint256 public constant MAX_DISPLAY = 10;
 
     struct MintPermit {
@@ -31,6 +44,7 @@ contract TreeNFT is ERC721Enumerable, ERC721URIStorage, AccessControl, EIP712 {
     mapping(uint256 => string) public backgroundUri; // backgroundId => URI
     mapping(uint256 => bool) public backgroundRegistered;
     mapping(uint256 => uint256[]) private _treeOrnaments; // treeId => ornamentIds
+    uint256 public registeredBackgroundCount;
 
     error InvalidSignature();
     error ExpiredDeadline();
@@ -48,15 +62,28 @@ contract TreeNFT is ERC721Enumerable, ERC721URIStorage, AccessControl, EIP712 {
     event OrnamentNFTUpdated(address indexed ornamentNFT);
     event BackgroundRegistered(uint256 indexed backgroundId, string uri);
     event BackgroundUriUpdated(uint256 indexed backgroundId, string uri);
-    event OrnamentAdded(uint256 indexed treeId, uint256 indexed ornamentId);
+    event OrnamentAdded(uint256 indexed treeId, uint256 indexed ornamentId, address indexed sender, uint256 index);
     event DisplayOrderUpdated(uint256 indexed treeId);
     event OrnamentsPromoted(uint256 indexed treeId);
 
-    constructor(address _signer) ERC721("Zeta Tree", "TREE") EIP712("ZetaTree", "1") {
+    /// @custom:oz-upgrades-unsafe-allow constructor
+    constructor() {
+        _disableInitializers();
+    }
+
+    function initialize(address _signer) public initializer {
+        __ERC721_init("Zeta Tree", "TREE");
+        __ERC721Enumerable_init();
+        __ERC721URIStorage_init();
+        __AccessControl_init();
+        __EIP712_init("ZetaTree", "1");
+
         _grantRole(DEFAULT_ADMIN_ROLE, msg.sender);
         signer = _signer;
         emit SignerUpdated(address(0), _signer);
     }
+
+    function _authorizeUpgrade(address) internal override onlyRole(DEFAULT_ADMIN_ROLE) {}
 
     function mintWithSignature(MintPermit calldata permit, bytes calldata signature) external {
         if (block.timestamp > permit.deadline) revert ExpiredDeadline();
@@ -93,10 +120,6 @@ contract TreeNFT is ERC721Enumerable, ERC721URIStorage, AccessControl, EIP712 {
         emit SignerUpdated(oldSigner, _signer);
     }
 
-    function registerBackground(uint256 backgroundId, string calldata uri) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        _registerBackground(backgroundId, uri);
-    }
-
     function registerBackgrounds(
         uint256[] calldata backgroundIds,
         string[] calldata uris
@@ -111,6 +134,7 @@ contract TreeNFT is ERC721Enumerable, ERC721URIStorage, AccessControl, EIP712 {
         if (backgroundRegistered[backgroundId]) revert BackgroundAlreadyRegistered();
         backgroundRegistered[backgroundId] = true;
         backgroundUri[backgroundId] = uri;
+        registeredBackgroundCount++;
         emit BackgroundRegistered(backgroundId, uri);
     }
 
@@ -125,25 +149,18 @@ contract TreeNFT is ERC721Enumerable, ERC721URIStorage, AccessControl, EIP712 {
         emit OrnamentNFTUpdated(_ornamentNFT);
     }
 
-    /// @notice Add ornament to tree. Can be called by tree owner or OrnamentNFT contract
+    /// @notice Add ornament to tree. Transfers ornament NFT to this contract.
     /// @param treeId The tree to add ornament to
     /// @param ornamentId The ornament token ID
-    /// @param caller The actual user (used when called from OrnamentNFT)
-    function addOrnamentToTree(uint256 treeId, uint256 ornamentId, address caller) external {
-        if (msg.sender == ornamentNFT) {
-            if (ownerOf(treeId) != caller) revert NotTreeOwner();
-        } else {
-            if (ownerOf(treeId) != msg.sender) revert NotTreeOwner();
-        }
-        _treeOrnaments[treeId].push(ornamentId);
-        emit OrnamentAdded(treeId, ornamentId);
-    }
-
-    /// @notice Add ornament to tree (convenience function for direct calls)
     function addOrnamentToTree(uint256 treeId, uint256 ornamentId) external {
         if (ownerOf(treeId) != msg.sender) revert NotTreeOwner();
+        
+        // Transfer ornament from user to this contract
+        IERC1155(ornamentNFT).safeTransferFrom(msg.sender, address(this), ornamentId, 1, "");
+        
         _treeOrnaments[treeId].push(ornamentId);
-        emit OrnamentAdded(treeId, ornamentId);
+        uint256 index = _treeOrnaments[treeId].length - 1;
+        emit OrnamentAdded(treeId, ornamentId, msg.sender, index);
     }
 
     function setDisplayOrder(uint256 treeId, uint256[] calldata newOrder) external {
@@ -217,29 +234,50 @@ contract TreeNFT is ERC721Enumerable, ERC721URIStorage, AccessControl, EIP712 {
         return _domainSeparatorV4();
     }
 
+    // ===== ERC1155Receiver =====
+    function onERC1155Received(
+        address,
+        address,
+        uint256,
+        uint256,
+        bytes calldata
+    ) external pure override returns (bytes4) {
+        return this.onERC1155Received.selector;
+    }
+
+    function onERC1155BatchReceived(
+        address,
+        address,
+        uint256[] calldata,
+        uint256[] calldata,
+        bytes calldata
+    ) external pure override returns (bytes4) {
+        return this.onERC1155BatchReceived.selector;
+    }
+
     // ===== Overrides =====
     function supportsInterface(bytes4 interfaceId)
         public
         view
-        override(AccessControl, ERC721Enumerable, ERC721URIStorage)
+        override(AccessControlUpgradeable, ERC721EnumerableUpgradeable, ERC721URIStorageUpgradeable, IERC165)
         returns (bool)
     {
-        return super.supportsInterface(interfaceId);
+        return interfaceId == type(IERC1155Receiver).interfaceId || super.supportsInterface(interfaceId);
     }
 
     function _update(address to, uint256 tokenId, address auth)
         internal
-        override(ERC721, ERC721Enumerable)
+        override(ERC721Upgradeable, ERC721EnumerableUpgradeable)
         returns (address)
     {
         return super._update(to, tokenId, auth);
     }
 
-    function _increaseBalance(address account, uint128 value) internal override(ERC721, ERC721Enumerable) {
+    function _increaseBalance(address account, uint128 value) internal override(ERC721Upgradeable, ERC721EnumerableUpgradeable) {
         super._increaseBalance(account, value);
     }
 
-    function tokenURI(uint256 tokenId) public view override(ERC721, ERC721URIStorage) returns (string memory) {
+    function tokenURI(uint256 tokenId) public view override(ERC721Upgradeable, ERC721URIStorageUpgradeable) returns (string memory) {
         return super.tokenURI(tokenId);
     }
 }

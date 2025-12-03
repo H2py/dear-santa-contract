@@ -10,9 +10,10 @@
 4. [Tree NFT 민팅](#tree-nft-민팅)
 5. [Ornament NFT 무료 뽑기](#ornament-nft-무료-뽑기)
 6. [Ornament NFT 유료 커스텀](#ornament-nft-유료-커스텀)
-7. [Nonce 관리](#nonce-관리)
-8. [관리자 기능](#관리자-기능)
-9. [에러 핸들링](#에러-핸들링)
+7. [오너먼트 장착](#오너먼트-장착)
+8. [Nonce 관리](#nonce-관리)
+9. [관리자 기능](#관리자-기능)
+10. [에러 핸들링](#에러-핸들링)
 
 ---
 
@@ -23,10 +24,10 @@ Dear Santa는 크리스마스 트리와 오너먼트를 NFT로 발행하는 서�
 - **TreeNFT (ERC721)**: 각 유저의 크리스마스 트리
 - **OrnamentNFT (ERC1155)**: 트리에 장식하는 오너먼트
 
-민팅은 **서명 기반**으로 작동합니다:
-1. 유저가 민팅 요청
-2. 백엔드가 서명 생성 및 저장
-3. 유저가 서명을 사용해 직접 트랜잭션 실행 (가스비는 유저 부담)
+### 핵심 플로우
+
+1. **오너먼트 민팅**: 서명 기반으로 오너먼트 NFT를 유저 지갑에 발행
+2. **오너먼트 장착**: 유저가 자신의 오너먼트를 트리에 장착 (NFT가 트리 컨트랙트로 전송됨)
 
 ---
 
@@ -39,7 +40,7 @@ interface TreeNFT {
   // 서명 기반 민팅
   mintWithSignature(permit: MintPermit, signature: bytes): void;
   
-  // 오너먼트 관리
+  // 오너먼트 관리 (유저가 approve 후 호출, NFT가 트리 컨트랙트로 전송됨)
   addOrnamentToTree(treeId: uint256, ornamentId: uint256): void;
   setDisplayOrder(treeId: uint256, newOrder: uint256[]): void;
   promoteOrnaments(treeId: uint256, displayIdxs: uint256[], reserveIdxs: uint256[]): void;
@@ -47,8 +48,24 @@ interface TreeNFT {
   // 조회
   getTreeOrnaments(treeId: uint256): uint256[];
   getDisplayOrnaments(treeId: uint256): uint256[];
+  getBackground(treeId: uint256): uint256;
   nonces(address): uint256;
   treeBackground(treeId: uint256): uint256;
+  backgroundUri(backgroundId: uint256): string;
+  backgroundRegistered(backgroundId: uint256): boolean;
+  registeredBackgroundCount(): uint256;
+
+  // 관리자 전용
+  registerBackgrounds(backgroundIds: uint256[], uris: string[]): void;
+  updateBackgroundUri(backgroundId: uint256, uri: string): void;
+  setSigner(signer: address): void;
+  setOrnamentNFT(ornamentNFT: address): void;
+
+  // 이벤트
+  event TreeMinted(uint256 indexed treeId, address indexed to, uint256 backgroundId);
+  event OrnamentAdded(uint256 indexed treeId, uint256 indexed ornamentId, address indexed sender, uint256 index);
+  event DisplayOrderUpdated(uint256 indexed treeId);
+  event OrnamentsPromoted(uint256 indexed treeId);
 }
 
 struct MintPermit {
@@ -65,22 +82,37 @@ struct MintPermit {
 
 ```typescript
 interface OrnamentNFT {
-  // 무료 뽑기 (서명 기반)
+  // 무료 뽑기 (서명 기반) - 유저 지갑에 민팅만 함
   mintWithSignature(permit: OrnamentMintPermit, signature: bytes): void;
   
-  // 유료 커스텀
-  mintCustomOrnament(treeId: uint256, uri: string): void;
+  // 유료 커스텀 - 유저 지갑에 민팅만 함
+  mintCustomOrnament(uri: string): void;
   
   // 조회
   nonces(address): uint256;
   ornamentRegistered(tokenId: uint256): boolean;
+  registeredOrnamentCount(): uint256;
   mintFee(): uint256;
+  nextCustomTokenId(): uint256;
+  CUSTOM_TOKEN_START(): uint256;  // 1001
+
+  // 관리자 전용
+  registerOrnaments(tokenIds: uint256[], uris: string[]): void;
+  setOrnamentUri(tokenId: uint256, uri: string): void;
+  setSigner(signer: address): void;
+  setPaymentToken(token: address): void;
+  setMintFee(fee: uint256): void;
+  withdrawFees(to: address): void;
+
+  // 이벤트
+  event OrnamentMinted(uint256 indexed tokenId, address indexed to);
+  event OrnamentRegistered(uint256 indexed tokenId, string uri);
+  event OrnamentUriUpdated(uint256 indexed tokenId, string uri);
 }
 
 struct OrnamentMintPermit {
   to: address;        // 수신자 주소
   tokenId: uint256;   // 오너먼트 ID (등록된 것만)
-  treeId: uint256;    // 장식할 트리 ID
   deadline: uint256;  // 만료 시간
   nonce: uint256;     // replay 방지용
 }
@@ -98,6 +130,7 @@ struct OrnamentMintPermit {
 ### Ornament NFT
 - **무료 뽑기**: 관리자가 등록한 오너먼트 중 백엔드가 랜덤 선택
 - **유료 커스텀**: ERC20 토큰으로 결제 후 원하는 이미지 업로드
+- **장착**: 오너먼트 민팅 후 유저가 별도로 트리에 장착 (NFT가 트리 컨트랙트로 전송됨)
 - **Display**: 트리에 표시되는 오너먼트는 최대 MAX_DISPLAY(10)개
 - **Reserve**: 10개 초과 시 reserve에 저장, 언제든 display로 승격 가능
 
@@ -251,7 +284,6 @@ const ornamentTypes = {
   OrnamentMintPermit: [
     { name: 'to', type: 'address' },
     { name: 'tokenId', type: 'uint256' },
-    { name: 'treeId', type: 'uint256' },
     { name: 'deadline', type: 'uint256' },
     { name: 'nonce', type: 'uint256' },
   ],
@@ -260,7 +292,6 @@ const ornamentTypes = {
 async function createOrnamentMintSignature(
   userAddress: string,
   tokenId: bigint,
-  treeId: bigint,
   nonce: bigint
 ): Promise<{ permit: any; signature: string }> {
   const signer = new ethers.Wallet(SIGNER_PRIVATE_KEY);
@@ -270,7 +301,6 @@ async function createOrnamentMintSignature(
   const permit = {
     to: userAddress,
     tokenId: tokenId,
-    treeId: treeId,
     deadline: deadline,
     nonce: nonce,
   };
@@ -286,35 +316,27 @@ async function createOrnamentMintSignature(
 ```typescript
 // POST /api/ornament/gacha
 async function handleOrnamentGacha(req: Request) {
-  const { walletAddress, treeId } = req.body;
+  const { walletAddress } = req.body;
   
-  // 1. 트리 소유권 확인
-  const isOwner = await verifyTreeOwnership(walletAddress, treeId);
-  if (!isOwner) {
-    throw new Error('트리 소유자가 아닙니다.');
-  }
-  
-  // 2. 등록된 오너먼트 중 랜덤 선택
+  // 1. 등록된 오너먼트 중 랜덤 선택
   const registeredOrnaments = await db.ornament.findAllRegistered();
   const selectedOrnament = selectRandomOrnament(registeredOrnaments);
   
-  // 3. nonce 조회
+  // 2. nonce 조회
   const provider = new ethers.JsonRpcProvider(RPC_URL);
   const ornamentContract = new ethers.Contract(ORNAMENT_NFT_ADDRESS, ORNAMENT_ABI, provider);
   const nonce = await ornamentContract.nonces(walletAddress);
   
-  // 4. 서명 생성
+  // 3. 서명 생성
   const { permit, signature } = await createOrnamentMintSignature(
     walletAddress,
     BigInt(selectedOrnament.tokenId),
-    BigInt(treeId),
     nonce
   );
   
-  // 5. DB 저장
+  // 4. DB 저장
   await db.ornamentMintRequest.create({
     walletAddress,
-    treeId,
     ornamentId: selectedOrnament.tokenId,
     signature,
     nonce: nonce.toString(),
@@ -340,7 +362,6 @@ async function handleOrnamentGacha(req: Request) {
 
 ```typescript
 async function mintCustomOrnament(
-  treeId: bigint,
   imageUri: string,
   paymentTokenAddress: string
 ) {
@@ -356,15 +377,57 @@ async function mintCustomOrnament(
   await approveTx.wait();
   
   // 2. 커스텀 오너먼트 민팅
-  const mintTx = await ornamentContract.mintCustomOrnament(treeId, imageUri);
+  const mintTx = await ornamentContract.mintCustomOrnament(imageUri);
   const receipt = await mintTx.wait();
   
   // 3. 이벤트에서 새로 생성된 tokenId 추출
-  const customMintEvent = receipt.logs.find(
-    (log) => log.topics[0] === ethers.id('CustomOrnamentMinted(uint256,address,uint256,string)')
+  const mintEvent = receipt.logs.find(
+    (log) => log.topics[0] === ethers.id('OrnamentMinted(uint256,address)')
   );
   // tokenId는 1001부터 시작
 }
+```
+
+---
+
+## 오너먼트 장착
+
+오너먼트를 트리에 장착하면 **NFT가 유저 지갑에서 TreeNFT 컨트랙트로 전송**됩니다.
+
+### 프론트엔드 플로우
+
+```typescript
+async function attachOrnamentToTree(
+  treeId: bigint,
+  ornamentId: bigint
+) {
+  const provider = new ethers.BrowserProvider(window.ethereum);
+  const signer = await provider.getSigner();
+  
+  const ornamentContract = new ethers.Contract(ORNAMENT_NFT_ADDRESS, ORNAMENT_ABI, signer);
+  const treeContract = new ethers.Contract(TREE_NFT_ADDRESS, TREE_ABI, signer);
+  
+  // 1. TreeNFT 컨트랙트에 오너먼트 전송 권한 부여
+  const isApproved = await ornamentContract.isApprovedForAll(signer.address, TREE_NFT_ADDRESS);
+  if (!isApproved) {
+    const approveTx = await ornamentContract.setApprovalForAll(TREE_NFT_ADDRESS, true);
+    await approveTx.wait();
+  }
+  
+  // 2. 오너먼트 장착 (NFT가 트리 컨트랙트로 전송됨)
+  const attachTx = await treeContract.addOrnamentToTree(treeId, ornamentId);
+  await attachTx.wait();
+}
+```
+
+### 백엔드 이벤트 구독
+
+```typescript
+// OrnamentAdded 이벤트 구독으로 장착 추적
+treeContract.on('OrnamentAdded', (treeId, ornamentId, sender) => {
+  console.log(`Tree ${treeId}: Ornament ${ornamentId} added by ${sender}`);
+  // DB 업데이트
+});
 ```
 
 ---
@@ -436,31 +499,39 @@ async function cleanupExpiredSignatures() {
 
 ## 관리자 기능
 
-### 배경 등록
+### 배경 배치 등록
 
 ```typescript
-async function registerBackground(backgroundId: bigint, uri: string) {
+async function registerBackgrounds(backgrounds: { id: bigint; uri: string }[]) {
   const adminSigner = new ethers.Wallet(ADMIN_PRIVATE_KEY, provider);
   const treeContract = new ethers.Contract(TREE_NFT_ADDRESS, TREE_ABI, adminSigner);
   
-  const tx = await treeContract.registerBackground(backgroundId, uri);
+  const backgroundIds = backgrounds.map(b => b.id);
+  const uris = backgrounds.map(b => b.uri);
+  
+  const tx = await treeContract.registerBackgrounds(backgroundIds, uris);
   await tx.wait();
 }
 ```
 
-### 오너먼트 등록
+### 오너먼트 배치 등록
 
 ```typescript
-async function registerOrnament(tokenId: bigint, uri: string) {
+async function registerOrnaments(ornaments: { id: bigint; uri: string }[]) {
   const adminSigner = new ethers.Wallet(ADMIN_PRIVATE_KEY, provider);
   const ornamentContract = new ethers.Contract(ORNAMENT_NFT_ADDRESS, ORNAMENT_ABI, adminSigner);
   
   // tokenId는 CUSTOM_TOKEN_START(1001) 미만이어야 함
-  if (tokenId >= 1001n) {
-    throw new Error('Invalid tokenId for registration');
+  for (const o of ornaments) {
+    if (o.id >= 1001n) {
+      throw new Error(`Invalid tokenId: ${o.id}. Must be less than 1001`);
+    }
   }
   
-  const tx = await ornamentContract.registerOrnament(tokenId, uri);
+  const tokenIds = ornaments.map(o => o.id);
+  const uris = ornaments.map(o => o.uri);
+  
+  const tx = await ornamentContract.registerOrnaments(tokenIds, uris);
   await tx.wait();
 }
 ```
@@ -472,7 +543,6 @@ async function hideInappropriateOrnament(tokenId: bigint) {
   const adminSigner = new ethers.Wallet(ADMIN_PRIVATE_KEY, provider);
   const ornamentContract = new ethers.Contract(ORNAMENT_NFT_ADDRESS, ORNAMENT_ABI, adminSigner);
   
-  // URI를 placeholder로 변경
   const tx = await ornamentContract.setOrnamentUri(tokenId, 'ipfs://placeholder/hidden');
   await tx.wait();
 }
@@ -502,58 +572,15 @@ async function withdrawFees(treasuryAddress: string) {
 | `ExpiredDeadline` | 서명 만료 | 새 서명 요청 |
 | `InvalidNonce` | nonce 불일치 | 최신 nonce로 재시도 |
 | `BackgroundNotRegistered` | 미등록 배경 | 관리자가 배경 등록 필요 |
+| `BackgroundAlreadyRegistered` | 이미 등록된 배경 | 다른 ID 사용 |
 | `OrnamentNotRegistered` | 미등록 오너먼트 | 관리자가 오너먼트 등록 필요 |
+| `OrnamentAlreadyRegistered` | 이미 등록된 오너먼트 | 다른 ID 사용 |
+| `InvalidTokenId` | 커스텀 범위(≥1001) ID로 등록 시도 | 1000 이하의 ID 사용 |
 | `NotTreeOwner` | 트리 소유자 아님 | 소유권 확인 |
 | `PaymentTokenNotSet` | 결제 토큰 미설정 | 관리자 설정 필요 |
 | `MintFeeNotSet` | 민팅 비용 미설정 | 관리자 설정 필요 |
+| `ArrayLengthMismatch` | 배열 길이 불일치 | 배열 길이 확인 |
 
-### 에러 처리 예시
-
-```typescript
-import { ethers } from 'ethers';
-
-async function handleContractError(error: any) {
-  if (error.code === 'CALL_EXCEPTION') {
-    const errorName = error.reason || error.data;
-    
-    switch (errorName) {
-      case 'InvalidSignature':
-        // 서명 재생성 로직
-        break;
-      case 'ExpiredDeadline':
-        // 새 서명 요청 안내
-        break;
-      case 'InvalidNonce':
-        // nonce 동기화 후 재시도
-        break;
-      default:
-        throw error;
-    }
-  }
-}
-```
-
----
-
-## 환경 변수 예시
-
-```env
-# Private Keys
-SIGNER_PRIVATE_KEY=0x...
-ADMIN_PRIVATE_KEY=0x...
-
-# Contract Addresses
-TREE_NFT_ADDRESS=0x...
-ORNAMENT_NFT_ADDRESS=0x...
-PAYMENT_TOKEN_ADDRESS=0x...
-
-# Network
-CHAIN_ID=7001
-RPC_URL_7001=https://...
-
-# Optional
-SIGNER_ADDRESS=0x...  # 배포 시 signer 주소 (기본: deployer)
-```
 
 ---
 
@@ -561,10 +588,9 @@ SIGNER_ADDRESS=0x...  # 배포 시 signer 주소 (기본: deployer)
 
 배포 전 확인사항:
 
-- [ ] 배경 등록 완료 (`registerBackground`)
-- [ ] 오너먼트 등록 완료 (`registerOrnament`)
+- [ ] 배경 배치 등록 완료 (`registerBackgrounds`)
+- [ ] 오너먼트 배치 등록 완료 (`registerOrnaments`)
 - [ ] OrnamentNFT 주소를 TreeNFT에 설정 (`setOrnamentNFT`)
 - [ ] 결제 토큰 설정 (`setPaymentToken`)
 - [ ] 민팅 비용 설정 (`setMintFee`)
 - [ ] Signer 주소 확인
-

@@ -37,19 +37,39 @@ if [ -z "$RPC_URL" ]; then
     exit 1
 fi
 
-echo "=========================================="
 echo "Deploying to Chain ID: $CHAIN_ID"
-echo "RPC URL: $RPC_URL"
-echo "=========================================="
+echo ""
 
-# Deploy contracts
+# Deploy contracts (suppress verbose output)
 forge script script/Deploy.s.sol:Deploy \
     --rpc-url "$RPC_URL" \
     --private-key "$PRIVATE_KEY" \
     --broadcast \
-    -vvvv
+    > /dev/null 2>&1
+
+# Extract addresses from broadcast JSON
+BROADCAST_FILE="broadcast/Deploy.s.sol/${CHAIN_ID}/run-latest.json"
+
+if [ ! -f "$BROADCAST_FILE" ]; then
+    echo "Error: Broadcast file not found"
+    exit 1
+fi
+
+TREE_IMPL=$(jq -r '.transactions[0].contractAddress' "$BROADCAST_FILE")
+TREE_PROXY=$(jq -r '.transactions[1].contractAddress' "$BROADCAST_FILE")
+ORNAMENT_IMPL=$(jq -r '.transactions[2].contractAddress' "$BROADCAST_FILE")
+ORNAMENT_PROXY=$(jq -r '.transactions[3].contractAddress' "$BROADCAST_FILE")
 
 echo "=========================================="
-echo "Deployment complete!"
+echo "Deployment Complete!"
 echo "=========================================="
-
+echo ""
+echo "TreeNFT"
+echo "  Implementation: $TREE_IMPL"
+echo "  Proxy:          $TREE_PROXY"
+echo ""
+echo "OrnamentNFT"
+echo "  Implementation: $ORNAMENT_IMPL"
+echo "  Proxy:          $ORNAMENT_PROXY"
+echo ""
+echo "=========================================="

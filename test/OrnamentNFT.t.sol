@@ -5,6 +5,7 @@ import {Test} from "forge-std/Test.sol";
 import {TreeNFT} from "../src/TreeNFT.sol";
 import {OrnamentNFT} from "../src/OrnamentNFT.sol";
 import {ERC20} from "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 // Mock ERC20 token for testing
 contract MockERC20 is ERC20 {
@@ -39,7 +40,7 @@ contract OrnamentNFTTest is Test {
     );
 
     bytes32 private constant ORNAMENT_MINT_PERMIT_TYPEHASH = keccak256(
-        "OrnamentMintPermit(address to,uint256 tokenId,uint256 treeId,uint256 deadline,uint256 nonce)"
+        "OrnamentMintPermit(address to,uint256 tokenId,uint256 deadline,uint256 nonce)"
     );
 
     function setUp() public {
@@ -49,17 +50,34 @@ contract OrnamentNFTTest is Test {
 
         vm.startPrank(admin);
 
-        // Deploy contracts
-        tree = new TreeNFT(signerWallet);
-        ornament = new OrnamentNFT(signerWallet, address(tree), "");
+        // Deploy TreeNFT with proxy
+        TreeNFT treeImpl = new TreeNFT();
+        bytes memory treeInitData = abi.encodeCall(TreeNFT.initialize, (signerWallet));
+        ERC1967Proxy treeProxy = new ERC1967Proxy(address(treeImpl), treeInitData);
+        tree = TreeNFT(address(treeProxy));
+
+        // Deploy OrnamentNFT with proxy
+        OrnamentNFT ornamentImpl = new OrnamentNFT();
+        bytes memory ornamentInitData = abi.encodeCall(OrnamentNFT.initialize, (signerWallet, ""));
+        ERC1967Proxy ornamentProxy = new ERC1967Proxy(address(ornamentImpl), ornamentInitData);
+        ornament = OrnamentNFT(address(ornamentProxy));
+
         paymentToken = new MockERC20();
 
         // Setup TreeNFT
-        tree.registerBackground(BACKGROUND_ID, BACKGROUND_URI);
+        uint256[] memory bgIds = new uint256[](1);
+        bgIds[0] = BACKGROUND_ID;
+        string[] memory bgUris = new string[](1);
+        bgUris[0] = BACKGROUND_URI;
+        tree.registerBackgrounds(bgIds, bgUris);
         tree.setOrnamentNFT(address(ornament));
 
         // Setup OrnamentNFT
-        ornament.registerOrnament(ORNAMENT_ID, ORNAMENT_URI);
+        uint256[] memory ornIds = new uint256[](1);
+        ornIds[0] = ORNAMENT_ID;
+        string[] memory ornUris = new string[](1);
+        ornUris[0] = ORNAMENT_URI;
+        ornament.registerOrnaments(ornIds, ornUris);
         ornament.setPaymentToken(address(paymentToken));
         ornament.setMintFee(MINT_FEE);
 
@@ -101,7 +119,6 @@ contract OrnamentNFTTest is Test {
     function _createOrnamentSignature(
         address to,
         uint256 tokenId,
-        uint256 treeId,
         uint256 deadline,
         uint256 nonce
     ) internal view returns (bytes memory) {
@@ -110,7 +127,6 @@ contract OrnamentNFTTest is Test {
                 ORNAMENT_MINT_PERMIT_TYPEHASH,
                 to,
                 tokenId,
-                treeId,
                 deadline,
                 nonce
             )
@@ -149,13 +165,12 @@ contract OrnamentNFTTest is Test {
         uint256 nonce = ornament.nonces(user);
 
         bytes memory signature = _createOrnamentSignature(
-            user, ORNAMENT_ID, TREE_ID, deadline, nonce
+            user, ORNAMENT_ID, deadline, nonce
         );
 
         OrnamentNFT.OrnamentMintPermit memory permit = OrnamentNFT.OrnamentMintPermit({
             to: user,
             tokenId: ORNAMENT_ID,
-            treeId: TREE_ID,
             deadline: deadline,
             nonce: nonce
         });
@@ -165,11 +180,6 @@ contract OrnamentNFTTest is Test {
 
         assertEq(ornament.balanceOf(user, ORNAMENT_ID), 1);
         assertEq(ornament.nonces(user), 1);
-
-        // Check ornament is added to tree
-        uint256[] memory treeOrnaments = tree.getTreeOrnaments(TREE_ID);
-        assertEq(treeOrnaments.length, 1);
-        assertEq(treeOrnaments[0], ORNAMENT_ID);
     }
 
     // ============ Scenario 2: 무료 뽑기 - 미등록 오너먼트 민팅 실패 ============
@@ -179,13 +189,12 @@ contract OrnamentNFTTest is Test {
         uint256 nonce = ornament.nonces(user);
 
         bytes memory signature = _createOrnamentSignature(
-            user, unregisteredId, TREE_ID, deadline, nonce
+            user, unregisteredId, deadline, nonce
         );
 
         OrnamentNFT.OrnamentMintPermit memory permit = OrnamentNFT.OrnamentMintPermit({
             to: user,
             tokenId: unregisteredId,
-            treeId: TREE_ID,
             deadline: deadline,
             nonce: nonce
         });
@@ -201,7 +210,7 @@ contract OrnamentNFTTest is Test {
 
         vm.startPrank(user);
         paymentToken.approve(address(ornament), MINT_FEE);
-        ornament.mintCustomOrnament(TREE_ID, customUri);
+        ornament.mintCustomOrnament(customUri);
         vm.stopPrank();
 
         // Check custom ornament ID starts from 1001
@@ -215,10 +224,6 @@ contract OrnamentNFTTest is Test {
 
         // Check next custom token ID incremented
         assertEq(ornament.nextCustomTokenId(), customTokenId + 1);
-
-        // Check ornament is added to tree
-        uint256[] memory treeOrnaments = tree.getTreeOrnaments(TREE_ID);
-        assertEq(treeOrnaments[0], customTokenId);
     }
 
     // ============ Scenario 4: 유료 커스텀 - 잔액/allowance 부족 시 실패 ============
@@ -227,14 +232,14 @@ contract OrnamentNFTTest is Test {
         paymentToken.approve(address(ornament), MINT_FEE);
 
         vm.expectRevert(); // ERC20 transfer will fail
-        ornament.mintCustomOrnament(TREE_ID, "ipfs://custom/fail");
+        ornament.mintCustomOrnament("ipfs://custom/fail");
         vm.stopPrank();
     }
 
     function testRevertMintCustomWithoutApproval() public {
         vm.prank(user);
         vm.expectRevert(); // No approval
-        ornament.mintCustomOrnament(TREE_ID, "ipfs://custom/fail");
+        ornament.mintCustomOrnament("ipfs://custom/fail");
     }
 
     // ============ Scenario 5: 관리자 URI 변경 기능 ============
@@ -254,13 +259,12 @@ contract OrnamentNFTTest is Test {
         uint256 nonce = ornament.nonces(user);
 
         bytes memory signature = _createOrnamentSignature(
-            user, ORNAMENT_ID, TREE_ID, deadline, nonce
+            user, ORNAMENT_ID, deadline, nonce
         );
 
         OrnamentNFT.OrnamentMintPermit memory permit = OrnamentNFT.OrnamentMintPermit({
             to: user,
             tokenId: ORNAMENT_ID,
-            treeId: TREE_ID,
             deadline: deadline,
             nonce: nonce
         });
@@ -275,13 +279,12 @@ contract OrnamentNFTTest is Test {
         uint256 wrongNonce = 999;
 
         bytes memory signature = _createOrnamentSignature(
-            user, ORNAMENT_ID, TREE_ID, deadline, wrongNonce
+            user, ORNAMENT_ID, deadline, wrongNonce
         );
 
         OrnamentNFT.OrnamentMintPermit memory permit = OrnamentNFT.OrnamentMintPermit({
             to: user,
             tokenId: ORNAMENT_ID,
-            treeId: TREE_ID,
             deadline: deadline,
             nonce: wrongNonce
         });
@@ -295,7 +298,7 @@ contract OrnamentNFTTest is Test {
         // First, have user mint a custom ornament
         vm.startPrank(user);
         paymentToken.approve(address(ornament), MINT_FEE);
-        ornament.mintCustomOrnament(TREE_ID, "ipfs://custom/1");
+        ornament.mintCustomOrnament("ipfs://custom/1");
         vm.stopPrank();
 
         // Withdraw fees
@@ -321,28 +324,39 @@ contract OrnamentNFTTest is Test {
     }
 
     function testRevertRegisterOrnamentWithCustomId() public {
-        uint256 customRangeId = 1001; // Custom range starts at 1001
+        uint256[] memory tokenIds = new uint256[](1);
+        tokenIds[0] = 1001; // Custom range starts at 1001
+        string[] memory uris = new string[](1);
+        uris[0] = "ipfs://invalid";
 
         vm.prank(admin);
         vm.expectRevert(OrnamentNFT.InvalidTokenId.selector);
-        ornament.registerOrnament(customRangeId, "ipfs://invalid");
+        ornament.registerOrnaments(tokenIds, uris);
     }
 
     function testRevertRegisterDuplicateOrnament() public {
+        uint256[] memory tokenIds = new uint256[](1);
+        tokenIds[0] = ORNAMENT_ID;
+        string[] memory uris = new string[](1);
+        uris[0] = "ipfs://dup";
+
         vm.prank(admin);
         vm.expectRevert(OrnamentNFT.OrnamentAlreadyRegistered.selector);
-        ornament.registerOrnament(ORNAMENT_ID, "ipfs://dup");
+        ornament.registerOrnaments(tokenIds, uris);
     }
 
     function testRevertMintCustomWithoutPaymentTokenSet() public {
-        // Deploy new ornament without payment settings
+        // Deploy new ornament with proxy without payment settings
         vm.startPrank(admin);
-        OrnamentNFT newOrnament = new OrnamentNFT(signerWallet, address(tree), "");
+        OrnamentNFT newOrnamentImpl = new OrnamentNFT();
+        bytes memory initData = abi.encodeCall(OrnamentNFT.initialize, (signerWallet, ""));
+        ERC1967Proxy proxy = new ERC1967Proxy(address(newOrnamentImpl), initData);
+        OrnamentNFT newOrnament = OrnamentNFT(address(proxy));
         vm.stopPrank();
 
         vm.prank(user);
         vm.expectRevert(OrnamentNFT.PaymentTokenNotSet.selector);
-        newOrnament.mintCustomOrnament(TREE_ID, "ipfs://fail");
+        newOrnament.mintCustomOrnament("ipfs://fail");
     }
 
     // ============ Batch Registration ============

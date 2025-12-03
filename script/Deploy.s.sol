@@ -4,6 +4,7 @@ pragma solidity ^0.8.24;
 import {Script, console} from "forge-std/Script.sol";
 import {TreeNFT} from "../src/TreeNFT.sol";
 import {OrnamentNFT} from "../src/OrnamentNFT.sol";
+import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 
 contract Deploy is Script {
     function run() external returns (TreeNFT tree, OrnamentNFT ornament) {
@@ -13,17 +14,25 @@ contract Deploy is Script {
 
         vm.startBroadcast(deployerKey);
 
-        // Deploy TreeNFT
-        tree = new TreeNFT(signer);
-        console.log("TreeNFT deployed at:", address(tree));
+        // Deploy TreeNFT Implementation
+        TreeNFT treeImpl = new TreeNFT();
+        console.log("TreeNFT Implementation deployed at:", address(treeImpl));
 
-        // Deploy OrnamentNFT
-        ornament = new OrnamentNFT(signer, address(tree), "");
-        console.log("OrnamentNFT deployed at:", address(ornament));
+        // Deploy TreeNFT Proxy
+        bytes memory treeInitData = abi.encodeCall(TreeNFT.initialize, (signer));
+        ERC1967Proxy treeProxy = new ERC1967Proxy(address(treeImpl), treeInitData);
+        tree = TreeNFT(address(treeProxy));
+        console.log("TreeNFT Proxy deployed at:", address(tree));
 
-        // Set OrnamentNFT address in TreeNFT
-        tree.setOrnamentNFT(address(ornament));
-        console.log("OrnamentNFT set in TreeNFT");
+        // Deploy OrnamentNFT Implementation
+        OrnamentNFT ornamentImpl = new OrnamentNFT();
+        console.log("OrnamentNFT Implementation deployed at:", address(ornamentImpl));
+
+        // Deploy OrnamentNFT Proxy
+        bytes memory ornamentInitData = abi.encodeCall(OrnamentNFT.initialize, (signer, ""));
+        ERC1967Proxy ornamentProxy = new ERC1967Proxy(address(ornamentImpl), ornamentInitData);
+        ornament = OrnamentNFT(address(ornamentProxy));
+        console.log("OrnamentNFT Proxy deployed at:", address(ornament));
 
         vm.stopBroadcast();
     }
