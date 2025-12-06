@@ -9,9 +9,9 @@ import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/crypt
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
-import {IERC1155} from "@openzeppelin/contracts/token/ERC1155/IERC1155.sol";
 import {IERC1155Receiver} from "@openzeppelin/contracts/token/ERC1155/IERC1155Receiver.sol";
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
+import {IOrnamentNFT} from "./interfaces/IOrnamentNFT.sol";
 
 contract TreeNFT is 
     Initializable,
@@ -39,6 +39,7 @@ contract TreeNFT is
 
     address public signer;
     address public ornamentNFT;
+    address public universalApp;
     mapping(address => uint256) public nonces;
     mapping(uint256 => uint256) public treeBackground; // treeId => backgroundId
     mapping(uint256 => string) public backgroundUri; // backgroundId => URI
@@ -56,13 +57,16 @@ contract TreeNFT is
     error InvalidDisplayLength();
     error InvalidOrnamentIndex();
     error ArrayLengthMismatch();
+    error InvalidAddress();
+    error NotUniversalApp();
 
     event TreeMinted(uint256 indexed treeId, address indexed to, uint256 backgroundId);
     event SignerUpdated(address indexed oldSigner, address indexed newSigner);
     event OrnamentNFTUpdated(address indexed ornamentNFT);
+    event UniversalAppUpdated(address indexed universalApp);
     event BackgroundRegistered(uint256 indexed backgroundId, string uri);
     event BackgroundUriUpdated(uint256 indexed backgroundId, string uri);
-    event OrnamentAdded(uint256 indexed treeId, uint256 indexed ornamentId, address indexed sender, uint256 index);
+    event OrnamentAttached(uint256 indexed treeId, uint256 indexed ornamentId, address indexed sender, uint256 index);
     event DisplayOrderUpdated(uint256 indexed treeId);
     event OrnamentsPromoted(uint256 indexed treeId);
 
@@ -115,6 +119,7 @@ contract TreeNFT is
     }
 
     function setSigner(address _signer) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (_signer == address(0)) revert InvalidAddress();
         address oldSigner = signer;
         signer = _signer;
         emit SignerUpdated(oldSigner, _signer);
@@ -145,22 +150,50 @@ contract TreeNFT is
     }
 
     function setOrnamentNFT(address _ornamentNFT) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (_ornamentNFT == address(0)) revert InvalidAddress();
         ornamentNFT = _ornamentNFT;
         emit OrnamentNFTUpdated(_ornamentNFT);
     }
 
-    /// @notice Add ornament to tree. Transfers ornament NFT to this contract.
+    function setUniversalApp(address _universalApp) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (_universalApp == address(0)) revert InvalidAddress();
+        universalApp = _universalApp;
+        emit UniversalAppUpdated(_universalApp);
+    }
+
+    /// @notice Add ornament to tree by burning the ornament NFT.
+    /// @dev Anyone can add ornaments to any tree (gift concept). Caller must own the ornament.
     /// @param treeId The tree to add ornament to
     /// @param ornamentId The ornament token ID
     function addOrnamentToTree(uint256 treeId, uint256 ornamentId) external {
-        if (ownerOf(treeId) != msg.sender) revert NotTreeOwner();
+        // Check tree exists (ownerOf reverts for non-existent tokens)
+        ownerOf(treeId);
         
-        // Transfer ornament from user to this contract
-        IERC1155(ornamentNFT).safeTransferFrom(msg.sender, address(this), ornamentId, 1, "");
+        // Burn ornament from caller (OrnamentNFT verifies ownership via _burn)
+        IOrnamentNFT(ornamentNFT).burnForAttachment(msg.sender, ornamentId);
         
         _treeOrnaments[treeId].push(ornamentId);
         uint256 index = _treeOrnaments[treeId].length - 1;
-        emit OrnamentAdded(treeId, ornamentId, msg.sender, index);
+        emit OrnamentAttached(treeId, ornamentId, msg.sender, index);
+    }
+
+    /// @notice Add ornament to tree on behalf of user (cross-chain)
+    /// @dev Only callable by UniversalApp for cross-chain ornament attachment
+    /// @param user The ornament owner address
+    /// @param treeId The tree to add ornament to
+    /// @param ornamentId The ornament token ID
+    function addOrnamentToTreeFor(address user, uint256 treeId, uint256 ornamentId) external {
+        if (msg.sender != universalApp) revert NotUniversalApp();
+        
+        // Check tree exists (ownerOf reverts for non-existent tokens)
+        ownerOf(treeId);
+        
+        // Burn ornament from user (OrnamentNFT verifies ownership via _burn)
+        IOrnamentNFT(ornamentNFT).burnForAttachment(user, ornamentId);
+        
+        _treeOrnaments[treeId].push(ornamentId);
+        uint256 index = _treeOrnaments[treeId].length - 1;
+        emit OrnamentAttached(treeId, ornamentId, user, index);
     }
 
     function setDisplayOrder(uint256 treeId, uint256[] calldata newOrder) external {

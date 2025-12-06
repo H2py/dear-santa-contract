@@ -424,4 +424,27 @@ contract OrnamentNFTTest is Test {
         vm.expectRevert(OrnamentNFT.OrnamentAlreadyRegistered.selector);
         ornament.registerOrnaments(tokenIds, uris);
     }
+
+    // ============ Admin Gift Mint ============
+
+    function testAdminCanGiftRegisteredOrnament() public {
+        vm.prank(admin);
+        ornament.adminMintOrnament(user2, ORNAMENT_ID);
+
+        assertEq(ornament.balanceOf(user2, ORNAMENT_ID), 1);
+    }
+
+    function testRevertAdminGiftToZeroAddress() public {
+        vm.prank(admin);
+        vm.expectRevert(OrnamentNFT.InvalidAddress.selector);
+        ornament.adminMintOrnament(address(0), ORNAMENT_ID);
+    }
+
+    function testRevertAdminGiftUnregisteredOrnament() public {
+        uint256 unregisteredId = 999;
+
+        vm.prank(admin);
+        vm.expectRevert(OrnamentNFT.OrnamentNotRegistered.selector);
+        ornament.adminMintOrnament(user2, unregisteredId);
+    }
 }

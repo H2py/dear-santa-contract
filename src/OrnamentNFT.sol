@@ -37,6 +37,7 @@ contract OrnamentNFT is
     );
 
     address public signer;
+    address public treeNFT;
     IERC20 public paymentToken;
     uint256 public mintFee;
     uint256 public nextCustomTokenId;
@@ -54,6 +55,8 @@ contract OrnamentNFT is
     error PaymentTokenNotSet();
     error MintFeeNotSet();
     error ArrayLengthMismatch();
+    error InvalidAddress();
+    error NotTreeNFT();
 
     event OrnamentMinted(uint256 indexed tokenId, address indexed to);
     event SignerUpdated(address indexed oldSigner, address indexed newSigner);
@@ -62,6 +65,8 @@ contract OrnamentNFT is
     event PaymentTokenUpdated(address indexed token);
     event MintFeeUpdated(uint256 fee);
     event FeesWithdrawn(address indexed to, uint256 amount);
+    event TreeNFTUpdated(address indexed treeNFT);
+    event OrnamentBurned(address indexed from, uint256 indexed ornamentId);
 
     /// @custom:oz-upgrades-unsafe-allow constructor
     constructor() {
@@ -125,6 +130,7 @@ contract OrnamentNFT is
     }
 
     function setSigner(address _signer) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (_signer == address(0)) revert InvalidAddress();
         address oldSigner = signer;
         signer = _signer;
         emit SignerUpdated(oldSigner, _signer);
@@ -159,6 +165,7 @@ contract OrnamentNFT is
     }
 
     function setPaymentToken(address token) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (token == address(0)) revert InvalidAddress();
         paymentToken = IERC20(token);
         emit PaymentTokenUpdated(token);
     }
@@ -168,10 +175,59 @@ contract OrnamentNFT is
         emit MintFeeUpdated(fee);
     }
 
+    /// @notice Admin can mint an already registered ornament to any user (gift)
+    /// @dev Does not consume permit or take payment; only for registered tokenIds
+    /// @param to Recipient address
+    /// @param tokenId Registered ornament id to mint
+    function adminMintOrnament(address to, uint256 tokenId) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (to == address(0)) revert InvalidAddress();
+        if (!ornamentRegistered[tokenId]) revert OrnamentNotRegistered();
+
+        _mint(to, tokenId, 1, "");
+        emit OrnamentMinted(tokenId, to);
+    }
+
     function withdrawFees(address to) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (to == address(0)) revert InvalidAddress();
         uint256 balance = paymentToken.balanceOf(address(this));
         paymentToken.safeTransfer(to, balance);
         emit FeesWithdrawn(to, balance);
+    }
+
+    function setTreeNFT(address _treeNFT) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (_treeNFT == address(0)) revert InvalidAddress();
+        treeNFT = _treeNFT;
+        emit TreeNFTUpdated(_treeNFT);
+    }
+
+    /// @notice Mint custom ornament for a specific user (called by UniversalApp for cross-chain)
+    /// @dev Payment must be handled by caller before this function is called
+    /// @param to Recipient address
+    /// @param ornamentUri IPFS URI for the custom ornament
+    function mintCustomOrnamentFor(address to, string calldata ornamentUri) external {
+        if (address(paymentToken) == address(0)) revert PaymentTokenNotSet();
+        if (mintFee == 0) revert MintFeeNotSet();
+
+        // Collect payment from caller (UniversalApp or user directly)
+        paymentToken.safeTransferFrom(msg.sender, address(this), mintFee);
+
+        // Mint custom ornament
+        uint256 tokenId = nextCustomTokenId++;
+        _mint(to, tokenId, 1, "");
+        _setURI(tokenId, ornamentUri);
+        ornamentRegistered[tokenId] = true;
+
+        emit OrnamentMinted(tokenId, to);
+    }
+
+    /// @notice Burn ornament when attaching to tree
+    /// @dev Only callable by TreeNFT contract
+    /// @param from Owner of the ornament
+    /// @param ornamentId Token ID to burn
+    function burnForAttachment(address from, uint256 ornamentId) external {
+        if (msg.sender != treeNFT) revert NotTreeNFT();
+        _burn(from, ornamentId, 1);
+        emit OrnamentBurned(from, ornamentId);
     }
 
     function DOMAIN_SEPARATOR() external view returns (bytes32) {

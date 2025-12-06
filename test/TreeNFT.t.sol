@@ -55,8 +55,9 @@ contract TreeNFTTest is Test {
         bgUris[0] = BACKGROUND_URI;
         tree.registerBackgrounds(bgIds, bgUris);
 
-        // Set ornamentNFT in TreeNFT
+        // Link TreeNFT <-> OrnamentNFT
         tree.setOrnamentNFT(address(ornament));
+        ornament.setTreeNFT(address(tree));
 
         // Register ornaments (1-20)
         uint256[] memory ornIds = new uint256[](20);
@@ -259,8 +260,8 @@ contract TreeNFTTest is Test {
         assertEq(displayOrnaments[0], 1);
         assertEq(displayOrnaments[9], 10);
 
-        // Check ornaments transferred to tree contract
-        assertEq(ornament.balanceOf(address(tree), 1), 1);
+        // Check ornaments are burned (not transferred to contract)
+        assertEq(ornament.balanceOf(address(tree), 1), 0);
         assertEq(ornament.balanceOf(user, 1), 0);
     }
 
@@ -313,15 +314,20 @@ contract TreeNFTTest is Test {
     }
 
     // ============ Scenario 9: 트리 소유자가 아닌 사람이 오너먼트 추가 시도 ============
-    function testRevertAddOrnamentNotOwner() public {
+    function testAddOrnamentToOthersTree() public {
+        // user owns the tree, user2 gifts an ornament to user's tree
         _mintTreeForUser(user, TREE_ID);
         _mintOrnamentForUser(user2, 1);
 
         vm.startPrank(user2);
         ornament.setApprovalForAll(address(tree), true);
-        vm.expectRevert(TreeNFT.NotTreeOwner.selector);
         tree.addOrnamentToTree(TREE_ID, 1);
         vm.stopPrank();
+
+        // Verify ornament was added to user's tree
+        uint256[] memory ornaments = tree.getTreeOrnaments(TREE_ID);
+        assertEq(ornaments.length, 1);
+        assertEq(ornaments[0], 1);
     }
 
     // ============ Admin Functions ============
