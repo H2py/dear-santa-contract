@@ -176,20 +176,30 @@ contract TreeNFT is
         emit UniversalAppUpdated(_universalApp);
     }
 
+    /// @dev Internal function to attach an ornament to a tree
+    /// @param user The ornament owner (for burning and event)
+    /// @param treeId The tree to attach to
+    /// @param ornamentId The ornament to attach
+    function _attachOrnamentToTree(address user, uint256 treeId, uint256 ornamentId) internal {
+        // Check tree exists (ownerOf reverts for non-existent tokens)
+        ownerOf(treeId);
+
+        // Burn ornament from user (OrnamentNFT verifies ownership via _burn)
+        IOrnamentNFT(ornamentNFT).burnForAttachment(user, ornamentId);
+
+        // Add ornament to tree
+        _treeOrnaments[treeId].push(ornamentId);
+        uint256 index = _treeOrnaments[treeId].length - 1;
+
+        emit OrnamentAttached(treeId, ornamentId, user, index);
+    }
+
     /// @notice Add ornament to tree by burning the ornament NFT.
     /// @dev Anyone can add ornaments to any tree (gift concept). Caller must own the ornament.
     /// @param treeId The tree to add ornament to
     /// @param ornamentId The ornament token ID
     function addOrnamentToTree(uint256 treeId, uint256 ornamentId) external {
-        // Check tree exists (ownerOf reverts for non-existent tokens)
-        ownerOf(treeId);
-
-        // Burn ornament from caller (OrnamentNFT verifies ownership via _burn)
-        IOrnamentNFT(ornamentNFT).burnForAttachment(msg.sender, ornamentId);
-
-        _treeOrnaments[treeId].push(ornamentId);
-        uint256 index = _treeOrnaments[treeId].length - 1;
-        emit OrnamentAttached(treeId, ornamentId, msg.sender, index);
+        _attachOrnamentToTree(msg.sender, treeId, ornamentId);
     }
 
     /// @notice Add ornament to tree on behalf of user (cross-chain)
@@ -199,34 +209,19 @@ contract TreeNFT is
     /// @param ornamentId The ornament token ID
     function addOrnamentToTreeFor(address user, uint256 treeId, uint256 ornamentId) external {
         if (msg.sender != universalApp) revert NotUniversalApp();
-
-        // Check tree exists (ownerOf reverts for non-existent tokens)
-        ownerOf(treeId);
-
-        // Burn ornament from user (OrnamentNFT verifies ownership via _burn)
-        IOrnamentNFT(ornamentNFT).burnForAttachment(user, ornamentId);
-
-        _treeOrnaments[treeId].push(ornamentId);
-        uint256 index = _treeOrnaments[treeId].length - 1;
-        emit OrnamentAttached(treeId, ornamentId, user, index);
+        _attachOrnamentToTree(user, treeId, ornamentId);
     }
 
     /// @notice Attach ornament to tree using permit (gasless for user)
-    /// @dev User signs a permit, admin executes transaction and pays gas
+    /// @dev User signs a permit, anyone can execute transaction and pay gas
     /// @param permit The permit data containing owner, treeId, ornamentId, deadline, and nonce
     /// @param signature The signature from the ornament owner
-    function attachWithPermit(AttachPermit calldata permit, bytes calldata signature)
-        external
-        onlyRole(DEFAULT_ADMIN_ROLE)
-    {
+    function attachWithPermit(AttachPermit calldata permit, bytes calldata signature) external {
         // Check deadline
         if (block.timestamp > permit.deadline) revert ExpiredDeadline();
 
         // Check nonce
         if (permit.nonce != nonces[permit.owner]) revert InvalidNonce();
-
-        // Verify tree exists (ownerOf reverts for non-existent tokens)
-        ownerOf(permit.treeId);
 
         // Verify signature using EIP-712
         bytes32 structHash = keccak256(
@@ -243,13 +238,8 @@ contract TreeNFT is
         // Increment nonce to prevent replay attacks
         nonces[permit.owner]++;
 
-        // Burn ornament from permit owner (OrnamentNFT verifies ownership via _burn)
-        IOrnamentNFT(ornamentNFT).burnForAttachment(permit.owner, permit.ornamentId);
-
-        // Add ornament to tree
-        _treeOrnaments[permit.treeId].push(permit.ornamentId);
-        uint256 index = _treeOrnaments[permit.treeId].length - 1;
-        emit OrnamentAttached(permit.treeId, permit.ornamentId, permit.owner, index);
+        // Attach ornament using internal function
+        _attachOrnamentToTree(permit.owner, permit.treeId, permit.ornamentId);
     }
 
     function setDisplayOrder(uint256 treeId, uint256[] calldata newOrder) external {
