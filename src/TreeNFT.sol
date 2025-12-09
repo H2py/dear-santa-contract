@@ -3,8 +3,12 @@ pragma solidity ^0.8.24;
 
 import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import {ERC721Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC721/ERC721Upgradeable.sol";
-import {ERC721EnumerableUpgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC721/extensions/ERC721EnumerableUpgradeable.sol";
-import {ERC721URIStorageUpgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC721/extensions/ERC721URIStorageUpgradeable.sol";
+import {
+    ERC721EnumerableUpgradeable
+} from "@openzeppelin/contracts-upgradeable/token/ERC721/extensions/ERC721EnumerableUpgradeable.sol";
+import {
+    ERC721URIStorageUpgradeable
+} from "@openzeppelin/contracts-upgradeable/token/ERC721/extensions/ERC721URIStorageUpgradeable.sol";
 import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
@@ -13,14 +17,14 @@ import {IERC1155Receiver} from "@openzeppelin/contracts/token/ERC1155/IERC1155Re
 import {IERC165} from "@openzeppelin/contracts/utils/introspection/IERC165.sol";
 import {IOrnamentNFT} from "./interfaces/IOrnamentNFT.sol";
 
-contract TreeNFT is 
+contract TreeNFT is
     Initializable,
     ERC721EnumerableUpgradeable,
     ERC721URIStorageUpgradeable,
     AccessControlUpgradeable,
     EIP712Upgradeable,
     UUPSUpgradeable,
-    IERC1155Receiver 
+    IERC1155Receiver
 {
     uint256 public constant MAX_DISPLAY = 10;
 
@@ -33,9 +37,20 @@ contract TreeNFT is
         uint256 nonce;
     }
 
+    struct AttachPermit {
+        address owner; // Ornament owner who signed
+        uint256 treeId; // Tree to attach ornament to
+        uint256 ornamentId; // Ornament token ID
+        uint256 deadline; // Permit expiry time
+        uint256 nonce; // Nonce for replay protection
+    }
+
     bytes32 private constant MINT_PERMIT_TYPEHASH = keccak256(
         "MintPermit(address to,uint256 treeId,uint256 backgroundId,string uri,uint256 deadline,uint256 nonce)"
     );
+
+    bytes32 private constant ATTACH_PERMIT_TYPEHASH =
+        keccak256("AttachPermit(address owner,uint256 treeId,uint256 ornamentId,uint256 deadline,uint256 nonce)");
 
     address public signer;
     address public ornamentNFT;
@@ -125,10 +140,10 @@ contract TreeNFT is
         emit SignerUpdated(oldSigner, _signer);
     }
 
-    function registerBackgrounds(
-        uint256[] calldata backgroundIds,
-        string[] calldata uris
-    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function registerBackgrounds(uint256[] calldata backgroundIds, string[] calldata uris)
+        external
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
         if (backgroundIds.length != uris.length) revert ArrayLengthMismatch();
         for (uint256 i = 0; i < backgroundIds.length; i++) {
             _registerBackground(backgroundIds[i], uris[i]);
@@ -161,20 +176,30 @@ contract TreeNFT is
         emit UniversalAppUpdated(_universalApp);
     }
 
+    /// @dev Internal function to attach an ornament to a tree
+    /// @param user The ornament owner (for burning and event)
+    /// @param treeId The tree to attach to
+    /// @param ornamentId The ornament to attach
+    function _attachOrnamentToTree(address user, uint256 treeId, uint256 ornamentId) internal {
+        // Check tree exists (ownerOf reverts for non-existent tokens)
+        ownerOf(treeId);
+
+        // Burn ornament from user (OrnamentNFT verifies ownership via _burn)
+        IOrnamentNFT(ornamentNFT).burnForAttachment(user, ornamentId);
+
+        // Add ornament to tree
+        _treeOrnaments[treeId].push(ornamentId);
+        uint256 index = _treeOrnaments[treeId].length - 1;
+
+        emit OrnamentAttached(treeId, ornamentId, user, index);
+    }
+
     /// @notice Add ornament to tree by burning the ornament NFT.
     /// @dev Anyone can add ornaments to any tree (gift concept). Caller must own the ornament.
     /// @param treeId The tree to add ornament to
     /// @param ornamentId The ornament token ID
     function addOrnamentToTree(uint256 treeId, uint256 ornamentId) external {
-        // Check tree exists (ownerOf reverts for non-existent tokens)
-        ownerOf(treeId);
-        
-        // Burn ornament from caller (OrnamentNFT verifies ownership via _burn)
-        IOrnamentNFT(ornamentNFT).burnForAttachment(msg.sender, ornamentId);
-        
-        _treeOrnaments[treeId].push(ornamentId);
-        uint256 index = _treeOrnaments[treeId].length - 1;
-        emit OrnamentAttached(treeId, ornamentId, msg.sender, index);
+        _attachOrnamentToTree(msg.sender, treeId, ornamentId);
     }
 
     /// @notice Add ornament to tree on behalf of user (cross-chain)
@@ -184,16 +209,37 @@ contract TreeNFT is
     /// @param ornamentId The ornament token ID
     function addOrnamentToTreeFor(address user, uint256 treeId, uint256 ornamentId) external {
         if (msg.sender != universalApp) revert NotUniversalApp();
-        
-        // Check tree exists (ownerOf reverts for non-existent tokens)
-        ownerOf(treeId);
-        
-        // Burn ornament from user (OrnamentNFT verifies ownership via _burn)
-        IOrnamentNFT(ornamentNFT).burnForAttachment(user, ornamentId);
-        
-        _treeOrnaments[treeId].push(ornamentId);
-        uint256 index = _treeOrnaments[treeId].length - 1;
-        emit OrnamentAttached(treeId, ornamentId, user, index);
+        _attachOrnamentToTree(user, treeId, ornamentId);
+    }
+
+    /// @notice Attach ornament to tree using permit (gasless for user)
+    /// @dev User signs a permit, anyone can execute transaction and pay gas
+    /// @param permit The permit data containing owner, treeId, ornamentId, deadline, and nonce
+    /// @param signature The signature from the ornament owner
+    function attachWithPermit(AttachPermit calldata permit, bytes calldata signature) external {
+        // Check deadline
+        if (block.timestamp > permit.deadline) revert ExpiredDeadline();
+
+        // Check nonce
+        if (permit.nonce != nonces[permit.owner]) revert InvalidNonce();
+
+        // Verify signature using EIP-712
+        bytes32 structHash = keccak256(
+            abi.encode(
+                ATTACH_PERMIT_TYPEHASH, permit.owner, permit.treeId, permit.ornamentId, permit.deadline, permit.nonce
+            )
+        );
+        bytes32 hash = _hashTypedDataV4(structHash);
+        address recovered = ECDSA.recover(hash, signature);
+
+        // Verify that the recovered address matches the permit owner
+        if (recovered != permit.owner) revert InvalidSignature();
+
+        // Increment nonce to prevent replay attacks
+        nonces[permit.owner]++;
+
+        // Attach ornament using internal function
+        _attachOrnamentToTree(permit.owner, permit.treeId, permit.ornamentId);
     }
 
     function setDisplayOrder(uint256 treeId, uint256[] calldata newOrder) external {
@@ -219,11 +265,7 @@ contract TreeNFT is
         emit DisplayOrderUpdated(treeId);
     }
 
-    function promoteOrnaments(
-        uint256 treeId,
-        uint256[] calldata displayIdxs,
-        uint256[] calldata reserveIdxs
-    ) external {
+    function promoteOrnaments(uint256 treeId, uint256[] calldata displayIdxs, uint256[] calldata reserveIdxs) external {
         if (ownerOf(treeId) != msg.sender) revert NotTreeOwner();
         if (displayIdxs.length != reserveIdxs.length) revert ArrayLengthMismatch();
 
@@ -268,23 +310,21 @@ contract TreeNFT is
     }
 
     // ===== ERC1155Receiver =====
-    function onERC1155Received(
-        address,
-        address,
-        uint256,
-        uint256,
-        bytes calldata
-    ) external pure override returns (bytes4) {
+    function onERC1155Received(address, address, uint256, uint256, bytes calldata)
+        external
+        pure
+        override
+        returns (bytes4)
+    {
         return this.onERC1155Received.selector;
     }
 
-    function onERC1155BatchReceived(
-        address,
-        address,
-        uint256[] calldata,
-        uint256[] calldata,
-        bytes calldata
-    ) external pure override returns (bytes4) {
+    function onERC1155BatchReceived(address, address, uint256[] calldata, uint256[] calldata, bytes calldata)
+        external
+        pure
+        override
+        returns (bytes4)
+    {
         return this.onERC1155BatchReceived.selector;
     }
 
@@ -306,11 +346,19 @@ contract TreeNFT is
         return super._update(to, tokenId, auth);
     }
 
-    function _increaseBalance(address account, uint128 value) internal override(ERC721Upgradeable, ERC721EnumerableUpgradeable) {
+    function _increaseBalance(address account, uint128 value)
+        internal
+        override(ERC721Upgradeable, ERC721EnumerableUpgradeable)
+    {
         super._increaseBalance(account, value);
     }
 
-    function tokenURI(uint256 tokenId) public view override(ERC721Upgradeable, ERC721URIStorageUpgradeable) returns (string memory) {
+    function tokenURI(uint256 tokenId)
+        public
+        view
+        override(ERC721Upgradeable, ERC721URIStorageUpgradeable)
+        returns (string memory)
+    {
         return super.tokenURI(tokenId);
     }
 }

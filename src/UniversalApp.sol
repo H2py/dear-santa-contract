@@ -15,13 +15,7 @@ import {IOrnamentNFT} from "./interfaces/IOrnamentNFT.sol";
  * @notice Cross-chain relay contract for Dear Santa NFT system
  * @dev Receives calls from Base via ZetaChain Gateway and routes to TreeNFT/OrnamentNFT
  */
-contract UniversalApp is 
-    Initializable,
-    UniversalContract,
-    Revertable,
-    AccessControlUpgradeable,
-    UUPSUpgradeable 
-{
+contract UniversalApp is Initializable, UniversalContract, Revertable, AccessControlUpgradeable, UUPSUpgradeable {
     // ===== Action Types =====
     bytes1 public constant ACTION_MINT_TREE = 0x01;
     bytes1 public constant ACTION_MINT_ORNAMENT_FREE = 0x02;
@@ -73,12 +67,11 @@ contract UniversalApp is
      * @param amount Amount of ZRC20 tokens received
      * @param message Encoded action and parameters
      */
-    function onCall(
-        MessageContext calldata context,
-        address zrc20,
-        uint256 amount,
-        bytes calldata message
-    ) external override onlyGateway {
+    function onCall(MessageContext calldata context, address zrc20, uint256 amount, bytes calldata message)
+        external
+        override
+        onlyGateway
+    {
         // Extract action type
         bytes1 action = bytes1(message[0]);
 
@@ -100,10 +93,7 @@ contract UniversalApp is
      * @param data Encoded (MintPermit, signature)
      */
     function _handleMintTree(bytes calldata data) internal {
-        (
-            ITreeNFT.MintPermit memory permit,
-            bytes memory signature
-        ) = abi.decode(data, (ITreeNFT.MintPermit, bytes));
+        (ITreeNFT.MintPermit memory permit, bytes memory signature) = abi.decode(data, (ITreeNFT.MintPermit, bytes));
 
         ITreeNFT(treeNFT).mintWithSignature(permit, signature);
 
@@ -115,10 +105,8 @@ contract UniversalApp is
      * @param data Encoded (OrnamentMintPermit, signature)
      */
     function _handleMintOrnamentFree(bytes calldata data) internal {
-        (
-            IOrnamentNFT.OrnamentMintPermit memory permit,
-            bytes memory signature
-        ) = abi.decode(data, (IOrnamentNFT.OrnamentMintPermit, bytes));
+        (IOrnamentNFT.OrnamentMintPermit memory permit, bytes memory signature) =
+            abi.decode(data, (IOrnamentNFT.OrnamentMintPermit, bytes));
 
         IOrnamentNFT(ornamentNFT).mintWithSignature(permit, signature);
 
@@ -133,19 +121,14 @@ contract UniversalApp is
      * @param amount Amount of ZRC20 tokens received
      * @param data Encoded (recipient, ornamentUri)
      */
-    function _handleMintOrnamentCustom(
-        address user,
-        address zrc20,
-        uint256 amount,
-        bytes calldata data
-    ) internal {
+    function _handleMintOrnamentCustom(address user, address zrc20, uint256 amount, bytes calldata data) internal {
         // Validate payment token
         if (zrc20 != usdcZRC20) revert InvalidPaymentToken();
         if (amount < customOrnamentPrice) revert InsufficientPayment();
 
         // Decode parameters
         (address recipient, string memory ornamentUri) = abi.decode(data, (address, string));
-        
+
         // Use user as recipient if not specified
         if (recipient == address(0)) {
             recipient = user;
@@ -189,7 +172,7 @@ contract UniversalApp is
     function onRevert(RevertContext calldata context) external override onlyGateway {
         // Log the revert for debugging/indexing
         emit RevertHandled(context.asset, context.amount, context.revertMessage);
-        
+
         // Note: The actual refund is handled by ZetaChain protocol
         // based on revertAddress specified in the original call
     }
@@ -236,11 +219,7 @@ contract UniversalApp is
      * @param to Recipient address
      * @param amount Amount to withdraw
      */
-    function emergencyWithdraw(
-        address token,
-        address to,
-        uint256 amount
-    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function emergencyWithdraw(address token, address to, uint256 amount) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (to == address(0)) revert InvalidAddress();
         bool success = IZRC20(token).transfer(to, amount);
         if (!success) revert TransferFailed();

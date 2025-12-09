@@ -25,9 +25,8 @@ contract TreeNFTTest is Test {
         "MintPermit(address to,uint256 treeId,uint256 backgroundId,string uri,uint256 deadline,uint256 nonce)"
     );
 
-    bytes32 private constant ORNAMENT_MINT_PERMIT_TYPEHASH = keccak256(
-        "OrnamentMintPermit(address to,uint256 tokenId,uint256 deadline,uint256 nonce)"
-    );
+    bytes32 private constant ORNAMENT_MINT_PERMIT_TYPEHASH =
+        keccak256("OrnamentMintPermit(address to,uint256 tokenId,uint256 deadline,uint256 nonce)");
 
     function setUp() public {
         // Generate signer wallet
@@ -80,19 +79,9 @@ contract TreeNFTTest is Test {
         uint256 nonce
     ) internal view returns (bytes memory) {
         bytes32 structHash = keccak256(
-            abi.encode(
-                MINT_PERMIT_TYPEHASH,
-                to,
-                treeId,
-                backgroundId,
-                keccak256(bytes(uri)),
-                deadline,
-                nonce
-            )
+            abi.encode(MINT_PERMIT_TYPEHASH, to, treeId, backgroundId, keccak256(bytes(uri)), deadline, nonce)
         );
-        bytes32 hash = keccak256(
-            abi.encodePacked("\x19\x01", tree.DOMAIN_SEPARATOR(), structHash)
-        );
+        bytes32 hash = keccak256(abi.encodePacked("\x19\x01", tree.DOMAIN_SEPARATOR(), structHash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerPrivateKey, hash);
         return abi.encodePacked(r, s, v);
     }
@@ -102,17 +91,10 @@ contract TreeNFTTest is Test {
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce = tree.nonces(user);
 
-        bytes memory signature = _createSignature(
-            user, TREE_ID, BACKGROUND_ID, TREE_URI, deadline, nonce
-        );
+        bytes memory signature = _createSignature(user, TREE_ID, BACKGROUND_ID, TREE_URI, deadline, nonce);
 
         TreeNFT.MintPermit memory permit = TreeNFT.MintPermit({
-            to: user,
-            treeId: TREE_ID,
-            backgroundId: BACKGROUND_ID,
-            uri: TREE_URI,
-            deadline: deadline,
-            nonce: nonce
+            to: user, treeId: TREE_ID, backgroundId: BACKGROUND_ID, uri: TREE_URI, deadline: deadline, nonce: nonce
         });
 
         vm.prank(user);
@@ -129,17 +111,10 @@ contract TreeNFTTest is Test {
         uint256 deadline = block.timestamp - 1; // Already expired
         uint256 nonce = tree.nonces(user);
 
-        bytes memory signature = _createSignature(
-            user, TREE_ID, BACKGROUND_ID, TREE_URI, deadline, nonce
-        );
+        bytes memory signature = _createSignature(user, TREE_ID, BACKGROUND_ID, TREE_URI, deadline, nonce);
 
         TreeNFT.MintPermit memory permit = TreeNFT.MintPermit({
-            to: user,
-            treeId: TREE_ID,
-            backgroundId: BACKGROUND_ID,
-            uri: TREE_URI,
-            deadline: deadline,
-            nonce: nonce
+            to: user, treeId: TREE_ID, backgroundId: BACKGROUND_ID, uri: TREE_URI, deadline: deadline, nonce: nonce
         });
 
         vm.prank(user);
@@ -155,26 +130,14 @@ contract TreeNFTTest is Test {
         // Sign with wrong private key
         uint256 wrongPrivateKey = 0xBAD;
         bytes32 structHash = keccak256(
-            abi.encode(
-                MINT_PERMIT_TYPEHASH,
-                user, TREE_ID, BACKGROUND_ID,
-                keccak256(bytes(TREE_URI)),
-                deadline, nonce
-            )
+            abi.encode(MINT_PERMIT_TYPEHASH, user, TREE_ID, BACKGROUND_ID, keccak256(bytes(TREE_URI)), deadline, nonce)
         );
-        bytes32 hash = keccak256(
-            abi.encodePacked("\x19\x01", tree.DOMAIN_SEPARATOR(), structHash)
-        );
+        bytes32 hash = keccak256(abi.encodePacked("\x19\x01", tree.DOMAIN_SEPARATOR(), structHash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(wrongPrivateKey, hash);
         bytes memory wrongSignature = abi.encodePacked(r, s, v);
 
         TreeNFT.MintPermit memory permit = TreeNFT.MintPermit({
-            to: user,
-            treeId: TREE_ID,
-            backgroundId: BACKGROUND_ID,
-            uri: TREE_URI,
-            deadline: deadline,
-            nonce: nonce
+            to: user, treeId: TREE_ID, backgroundId: BACKGROUND_ID, uri: TREE_URI, deadline: deadline, nonce: nonce
         });
 
         vm.prank(user);
@@ -187,17 +150,10 @@ contract TreeNFTTest is Test {
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce = tree.nonces(user);
 
-        bytes memory signature = _createSignature(
-            user, TREE_ID, BACKGROUND_ID, TREE_URI, deadline, nonce
-        );
+        bytes memory signature = _createSignature(user, TREE_ID, BACKGROUND_ID, TREE_URI, deadline, nonce);
 
         TreeNFT.MintPermit memory permit = TreeNFT.MintPermit({
-            to: user,
-            treeId: TREE_ID,
-            backgroundId: BACKGROUND_ID,
-            uri: TREE_URI,
-            deadline: deadline,
-            nonce: nonce
+            to: user, treeId: TREE_ID, backgroundId: BACKGROUND_ID, uri: TREE_URI, deadline: deadline, nonce: nonce
         });
 
         vm.prank(user);
@@ -224,17 +180,10 @@ contract TreeNFTTest is Test {
         uint256 nonce = tree.nonces(user);
         uint256 unregisteredBgId = 999;
 
-        bytes memory signature = _createSignature(
-            user, TREE_ID, unregisteredBgId, TREE_URI, deadline, nonce
-        );
+        bytes memory signature = _createSignature(user, TREE_ID, unregisteredBgId, TREE_URI, deadline, nonce);
 
         TreeNFT.MintPermit memory permit = TreeNFT.MintPermit({
-            to: user,
-            treeId: TREE_ID,
-            backgroundId: unregisteredBgId,
-            uri: TREE_URI,
-            deadline: deadline,
-            nonce: nonce
+            to: user, treeId: TREE_ID, backgroundId: unregisteredBgId, uri: TREE_URI, deadline: deadline, nonce: nonce
         });
 
         vm.prank(user);
@@ -284,7 +233,7 @@ contract TreeNFTTest is Test {
 
         uint256[] memory display = tree.getDisplayOrnaments(TREE_ID);
         assertEq(display[0], 10); // Was at index 9
-        assertEq(display[9], 1);  // Was at index 0
+        assertEq(display[9], 1); // Was at index 0
     }
 
     // ============ Scenario 8: Reserve → Display 배치 승격 ============
@@ -494,8 +443,8 @@ contract TreeNFTTest is Test {
         // 프로모트 후 확인 (스왑되어야 함)
         uint256[] memory after_ = tree.getTreeOrnaments(TREE_ID);
         assertEq(after_.length, 12);
-        assertEq(after_[0], 11);  // 11이 첫 번째로 이동
-        assertEq(after_[10], 1);  // 1이 reserve로 이동
+        assertEq(after_[0], 11); // 11이 첫 번째로 이동
+        assertEq(after_[10], 1); // 1이 reserve로 이동
     }
 
     // ============ Helper ============
@@ -503,41 +452,23 @@ contract TreeNFTTest is Test {
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce = tree.nonces(to);
 
-        bytes memory signature = _createSignature(
-            to, treeId, BACKGROUND_ID, TREE_URI, deadline, nonce
-        );
+        bytes memory signature = _createSignature(to, treeId, BACKGROUND_ID, TREE_URI, deadline, nonce);
 
         TreeNFT.MintPermit memory permit = TreeNFT.MintPermit({
-            to: to,
-            treeId: treeId,
-            backgroundId: BACKGROUND_ID,
-            uri: TREE_URI,
-            deadline: deadline,
-            nonce: nonce
+            to: to, treeId: treeId, backgroundId: BACKGROUND_ID, uri: TREE_URI, deadline: deadline, nonce: nonce
         });
 
         vm.prank(to);
         tree.mintWithSignature(permit, signature);
     }
 
-    function _createOrnamentSignature(
-        address to,
-        uint256 tokenId,
-        uint256 deadline,
-        uint256 nonce
-    ) internal view returns (bytes memory) {
-        bytes32 structHash = keccak256(
-            abi.encode(
-                ORNAMENT_MINT_PERMIT_TYPEHASH,
-                to,
-                tokenId,
-                deadline,
-                nonce
-            )
-        );
-        bytes32 hash = keccak256(
-            abi.encodePacked("\x19\x01", ornament.DOMAIN_SEPARATOR(), structHash)
-        );
+    function _createOrnamentSignature(address to, uint256 tokenId, uint256 deadline, uint256 nonce)
+        internal
+        view
+        returns (bytes memory)
+    {
+        bytes32 structHash = keccak256(abi.encode(ORNAMENT_MINT_PERMIT_TYPEHASH, to, tokenId, deadline, nonce));
+        bytes32 hash = keccak256(abi.encodePacked("\x19\x01", ornament.DOMAIN_SEPARATOR(), structHash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerPrivateKey, hash);
         return abi.encodePacked(r, s, v);
     }
@@ -548,12 +479,8 @@ contract TreeNFTTest is Test {
 
         bytes memory signature = _createOrnamentSignature(to, ornamentId, deadline, nonce);
 
-        OrnamentNFT.OrnamentMintPermit memory permit = OrnamentNFT.OrnamentMintPermit({
-            to: to,
-            tokenId: ornamentId,
-            deadline: deadline,
-            nonce: nonce
-        });
+        OrnamentNFT.OrnamentMintPermit memory permit =
+            OrnamentNFT.OrnamentMintPermit({to: to, tokenId: ornamentId, deadline: deadline, nonce: nonce});
 
         vm.prank(to);
         ornament.mintWithSignature(permit, signature);
@@ -561,7 +488,7 @@ contract TreeNFTTest is Test {
 
     function _mintAndAttachOrnament(address to, uint256 treeId, uint256 ornamentId) internal {
         _mintOrnamentForUser(to, ornamentId);
-        
+
         vm.startPrank(to);
         ornament.setApprovalForAll(address(tree), true);
         tree.addOrnamentToTree(treeId, ornamentId);

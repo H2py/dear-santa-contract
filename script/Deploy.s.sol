@@ -18,10 +18,10 @@ contract Deploy is Script {
 
         // Deploy TreeNFT
         tree = _deployTree(signer);
-        
+
         // Deploy OrnamentNFT
         ornament = _deployOrnament(signer);
-        
+
         // Deploy UniversalApp
         universalApp = _deployUniversalApp(gateway);
 

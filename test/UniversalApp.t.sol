@@ -34,9 +34,8 @@ contract UniversalAppTest is Test {
         "MintPermit(address to,uint256 treeId,uint256 backgroundId,string uri,uint256 deadline,uint256 nonce)"
     );
 
-    bytes32 private constant ORNAMENT_MINT_PERMIT_TYPEHASH = keccak256(
-        "OrnamentMintPermit(address to,uint256 tokenId,uint256 deadline,uint256 nonce)"
-    );
+    bytes32 private constant ORNAMENT_MINT_PERMIT_TYPEHASH =
+        keccak256("OrnamentMintPermit(address to,uint256 tokenId,uint256 deadline,uint256 nonce)");
 
     function setUp() public {
         signerPrivateKey = 0xA11CE;
@@ -113,20 +112,12 @@ contract UniversalAppTest is Test {
         uint256 nonce = tree.nonces(user);
 
         TreeNFT.MintPermit memory permit = TreeNFT.MintPermit({
-            to: user,
-            treeId: TREE_ID,
-            backgroundId: BACKGROUND_ID,
-            uri: TREE_URI,
-            deadline: deadline,
-            nonce: nonce
+            to: user, treeId: TREE_ID, backgroundId: BACKGROUND_ID, uri: TREE_URI, deadline: deadline, nonce: nonce
         });
 
         bytes memory signature = _createTreeSignature(permit);
 
-        bytes memory message = abi.encodePacked(
-            universalApp.ACTION_MINT_TREE(),
-            abi.encode(permit, signature)
-        );
+        bytes memory message = abi.encodePacked(universalApp.ACTION_MINT_TREE(), abi.encode(permit, signature));
 
         MessageContext memory ctx = MessageContext({
             sender: abi.encodePacked(user),
@@ -220,19 +211,12 @@ contract UniversalAppTest is Test {
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce = ornament.nonces(user);
 
-        OrnamentNFT.OrnamentMintPermit memory permit = OrnamentNFT.OrnamentMintPermit({
-            to: user,
-            tokenId: ornamentId,
-            deadline: deadline,
-            nonce: nonce
-        });
+        OrnamentNFT.OrnamentMintPermit memory permit =
+            OrnamentNFT.OrnamentMintPermit({to: user, tokenId: ornamentId, deadline: deadline, nonce: nonce});
 
         bytes memory signature = _createOrnamentSignature(permit);
 
-        bytes memory message = abi.encodePacked(
-            universalApp.ACTION_MINT_ORNAMENT_FREE(),
-            abi.encode(permit, signature)
-        );
+        bytes memory message = abi.encodePacked(universalApp.ACTION_MINT_ORNAMENT_FREE(), abi.encode(permit, signature));
 
         MessageContext memory ctx = MessageContext({
             sender: abi.encodePacked(user),
@@ -261,26 +245,20 @@ contract UniversalAppTest is Test {
                 permit.nonce
             )
         );
-        bytes32 hash = keccak256(
-            abi.encodePacked("\x19\x01", tree.DOMAIN_SEPARATOR(), structHash)
-        );
+        bytes32 hash = keccak256(abi.encodePacked("\x19\x01", tree.DOMAIN_SEPARATOR(), structHash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerPrivateKey, hash);
         return abi.encodePacked(r, s, v);
     }
 
-    function _createOrnamentSignature(OrnamentNFT.OrnamentMintPermit memory permit) internal view returns (bytes memory) {
+    function _createOrnamentSignature(OrnamentNFT.OrnamentMintPermit memory permit)
+        internal
+        view
+        returns (bytes memory)
+    {
         bytes32 structHash = keccak256(
-            abi.encode(
-                ORNAMENT_MINT_PERMIT_TYPEHASH,
-                permit.to,
-                permit.tokenId,
-                permit.deadline,
-                permit.nonce
-            )
+            abi.encode(ORNAMENT_MINT_PERMIT_TYPEHASH, permit.to, permit.tokenId, permit.deadline, permit.nonce)
         );
-        bytes32 hash = keccak256(
-            abi.encodePacked("\x19\x01", ornament.DOMAIN_SEPARATOR(), structHash)
-        );
+        bytes32 hash = keccak256(abi.encodePacked("\x19\x01", ornament.DOMAIN_SEPARATOR(), structHash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerPrivateKey, hash);
         return abi.encodePacked(r, s, v);
     }
