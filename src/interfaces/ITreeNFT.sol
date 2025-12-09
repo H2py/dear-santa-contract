@@ -26,6 +26,3 @@ interface ITreeNFT {
     function DOMAIN_SEPARATOR() external view returns (bytes32);
 }
 
-
-
-

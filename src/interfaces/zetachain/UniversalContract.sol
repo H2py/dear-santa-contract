@@ -30,10 +30,7 @@ abstract contract UniversalContract {
     }
 
     /// @notice Function to handle cross-chain calls with ZRC20 token transfers
-    function onCall(
-        MessageContext calldata context,
-        address zrc20,
-        uint256 amount,
-        bytes calldata message
-    ) external virtual;
+    function onCall(MessageContext calldata context, address zrc20, uint256 amount, bytes calldata message)
+        external
+        virtual;
 }

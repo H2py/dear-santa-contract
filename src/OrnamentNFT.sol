@@ -3,8 +3,12 @@ pragma solidity ^0.8.24;
 
 import {AccessControlUpgradeable} from "@openzeppelin/contracts-upgradeable/access/AccessControlUpgradeable.sol";
 import {ERC1155Upgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC1155/ERC1155Upgradeable.sol";
-import {ERC1155SupplyUpgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC1155/extensions/ERC1155SupplyUpgradeable.sol";
-import {ERC1155URIStorageUpgradeable} from "@openzeppelin/contracts-upgradeable/token/ERC1155/extensions/ERC1155URIStorageUpgradeable.sol";
+import {
+    ERC1155SupplyUpgradeable
+} from "@openzeppelin/contracts-upgradeable/token/ERC1155/extensions/ERC1155SupplyUpgradeable.sol";
+import {
+    ERC1155URIStorageUpgradeable
+} from "@openzeppelin/contracts-upgradeable/token/ERC1155/extensions/ERC1155URIStorageUpgradeable.sol";
 import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
@@ -12,14 +16,14 @@ import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
 import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
-contract OrnamentNFT is 
+contract OrnamentNFT is
     Initializable,
     ERC1155Upgradeable,
     ERC1155SupplyUpgradeable,
     ERC1155URIStorageUpgradeable,
     AccessControlUpgradeable,
     EIP712Upgradeable,
-    UUPSUpgradeable 
+    UUPSUpgradeable
 {
     using SafeERC20 for IERC20;
 
@@ -32,9 +36,8 @@ contract OrnamentNFT is
         uint256 nonce;
     }
 
-    bytes32 private constant ORNAMENT_MINT_PERMIT_TYPEHASH = keccak256(
-        "OrnamentMintPermit(address to,uint256 tokenId,uint256 deadline,uint256 nonce)"
-    );
+    bytes32 private constant ORNAMENT_MINT_PERMIT_TYPEHASH =
+        keccak256("OrnamentMintPermit(address to,uint256 tokenId,uint256 deadline,uint256 nonce)");
 
     address public signer;
     address public treeNFT;
@@ -94,13 +97,7 @@ contract OrnamentNFT is
         if (!ornamentRegistered[permit.tokenId]) revert OrnamentNotRegistered();
 
         bytes32 structHash = keccak256(
-            abi.encode(
-                ORNAMENT_MINT_PERMIT_TYPEHASH,
-                permit.to,
-                permit.tokenId,
-                permit.deadline,
-                permit.nonce
-            )
+            abi.encode(ORNAMENT_MINT_PERMIT_TYPEHASH, permit.to, permit.tokenId, permit.deadline, permit.nonce)
         );
         bytes32 hash = _hashTypedDataV4(structHash);
         address recovered = ECDSA.recover(hash, signature);
@@ -136,10 +133,10 @@ contract OrnamentNFT is
         emit SignerUpdated(oldSigner, _signer);
     }
 
-    function registerOrnaments(
-        uint256[] calldata tokenIds,
-        string[] calldata uris
-    ) external onlyRole(DEFAULT_ADMIN_ROLE) {
+    function registerOrnaments(uint256[] calldata tokenIds, string[] calldata uris)
+        external
+        onlyRole(DEFAULT_ADMIN_ROLE)
+    {
         if (tokenIds.length != uris.length) revert ArrayLengthMismatch();
         for (uint256 i = 0; i < tokenIds.length; i++) {
             _registerOrnament(tokenIds[i], uris[i]);
@@ -235,11 +232,21 @@ contract OrnamentNFT is
     }
 
     // ===== Overrides =====
-    function uri(uint256 tokenId) public view override(ERC1155Upgradeable, ERC1155URIStorageUpgradeable) returns (string memory) {
+    function uri(uint256 tokenId)
+        public
+        view
+        override(ERC1155Upgradeable, ERC1155URIStorageUpgradeable)
+        returns (string memory)
+    {
         return super.uri(tokenId);
     }
 
-    function supportsInterface(bytes4 interfaceId) public view override(AccessControlUpgradeable, ERC1155Upgradeable) returns (bool) {
+    function supportsInterface(bytes4 interfaceId)
+        public
+        view
+        override(AccessControlUpgradeable, ERC1155Upgradeable)
+        returns (bool)
+    {
         return super.supportsInterface(interfaceId);
     }
 

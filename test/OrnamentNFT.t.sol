@@ -30,7 +30,7 @@ contract OrnamentNFTTest is Test {
     uint256 constant TREE_ID = 1;
     uint256 constant BACKGROUND_ID = 100;
     uint256 constant ORNAMENT_ID = 1;
-    uint256 constant MINT_FEE = 100 * 10**18;
+    uint256 constant MINT_FEE = 100 * 10 ** 18;
     string constant BACKGROUND_URI = "ipfs://background/100";
     string constant TREE_URI = "ipfs://tree/1";
     string constant ORNAMENT_URI = "ipfs://ornament/1";
@@ -39,9 +39,8 @@ contract OrnamentNFTTest is Test {
         "MintPermit(address to,uint256 treeId,uint256 backgroundId,string uri,uint256 deadline,uint256 nonce)"
     );
 
-    bytes32 private constant ORNAMENT_MINT_PERMIT_TYPEHASH = keccak256(
-        "OrnamentMintPermit(address to,uint256 tokenId,uint256 deadline,uint256 nonce)"
-    );
+    bytes32 private constant ORNAMENT_MINT_PERMIT_TYPEHASH =
+        keccak256("OrnamentMintPermit(address to,uint256 tokenId,uint256 deadline,uint256 nonce)");
 
     function setUp() public {
         // Generate signer wallet
@@ -87,7 +86,7 @@ contract OrnamentNFTTest is Test {
         _mintTreeForUser(user, TREE_ID);
 
         // Give user some tokens
-        paymentToken.mint(user, 1000 * 10**18);
+        paymentToken.mint(user, 1000 * 10 ** 18);
     }
 
     function _createTreeSignature(
@@ -99,41 +98,20 @@ contract OrnamentNFTTest is Test {
         uint256 nonce
     ) internal view returns (bytes memory) {
         bytes32 structHash = keccak256(
-            abi.encode(
-                MINT_PERMIT_TYPEHASH,
-                to,
-                treeId,
-                backgroundId,
-                keccak256(bytes(uri)),
-                deadline,
-                nonce
-            )
+            abi.encode(MINT_PERMIT_TYPEHASH, to, treeId, backgroundId, keccak256(bytes(uri)), deadline, nonce)
         );
-        bytes32 hash = keccak256(
-            abi.encodePacked("\x19\x01", tree.DOMAIN_SEPARATOR(), structHash)
-        );
+        bytes32 hash = keccak256(abi.encodePacked("\x19\x01", tree.DOMAIN_SEPARATOR(), structHash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerPrivateKey, hash);
         return abi.encodePacked(r, s, v);
     }
 
-    function _createOrnamentSignature(
-        address to,
-        uint256 tokenId,
-        uint256 deadline,
-        uint256 nonce
-    ) internal view returns (bytes memory) {
-        bytes32 structHash = keccak256(
-            abi.encode(
-                ORNAMENT_MINT_PERMIT_TYPEHASH,
-                to,
-                tokenId,
-                deadline,
-                nonce
-            )
-        );
-        bytes32 hash = keccak256(
-            abi.encodePacked("\x19\x01", ornament.DOMAIN_SEPARATOR(), structHash)
-        );
+    function _createOrnamentSignature(address to, uint256 tokenId, uint256 deadline, uint256 nonce)
+        internal
+        view
+        returns (bytes memory)
+    {
+        bytes32 structHash = keccak256(abi.encode(ORNAMENT_MINT_PERMIT_TYPEHASH, to, tokenId, deadline, nonce));
+        bytes32 hash = keccak256(abi.encodePacked("\x19\x01", ornament.DOMAIN_SEPARATOR(), structHash));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(signerPrivateKey, hash);
         return abi.encodePacked(r, s, v);
     }
@@ -142,17 +120,10 @@ contract OrnamentNFTTest is Test {
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce = tree.nonces(to);
 
-        bytes memory signature = _createTreeSignature(
-            to, treeId, BACKGROUND_ID, TREE_URI, deadline, nonce
-        );
+        bytes memory signature = _createTreeSignature(to, treeId, BACKGROUND_ID, TREE_URI, deadline, nonce);
 
         TreeNFT.MintPermit memory permit = TreeNFT.MintPermit({
-            to: to,
-            treeId: treeId,
-            backgroundId: BACKGROUND_ID,
-            uri: TREE_URI,
-            deadline: deadline,
-            nonce: nonce
+            to: to, treeId: treeId, backgroundId: BACKGROUND_ID, uri: TREE_URI, deadline: deadline, nonce: nonce
         });
 
         vm.prank(to);
@@ -164,16 +135,10 @@ contract OrnamentNFTTest is Test {
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce = ornament.nonces(user);
 
-        bytes memory signature = _createOrnamentSignature(
-            user, ORNAMENT_ID, deadline, nonce
-        );
+        bytes memory signature = _createOrnamentSignature(user, ORNAMENT_ID, deadline, nonce);
 
-        OrnamentNFT.OrnamentMintPermit memory permit = OrnamentNFT.OrnamentMintPermit({
-            to: user,
-            tokenId: ORNAMENT_ID,
-            deadline: deadline,
-            nonce: nonce
-        });
+        OrnamentNFT.OrnamentMintPermit memory permit =
+            OrnamentNFT.OrnamentMintPermit({to: user, tokenId: ORNAMENT_ID, deadline: deadline, nonce: nonce});
 
         vm.prank(user);
         ornament.mintWithSignature(permit, signature);
@@ -188,16 +153,10 @@ contract OrnamentNFTTest is Test {
         uint256 deadline = block.timestamp + 1 hours;
         uint256 nonce = ornament.nonces(user);
 
-        bytes memory signature = _createOrnamentSignature(
-            user, unregisteredId, deadline, nonce
-        );
+        bytes memory signature = _createOrnamentSignature(user, unregisteredId, deadline, nonce);
 
-        OrnamentNFT.OrnamentMintPermit memory permit = OrnamentNFT.OrnamentMintPermit({
-            to: user,
-            tokenId: unregisteredId,
-            deadline: deadline,
-            nonce: nonce
-        });
+        OrnamentNFT.OrnamentMintPermit memory permit =
+            OrnamentNFT.OrnamentMintPermit({to: user, tokenId: unregisteredId, deadline: deadline, nonce: nonce});
 
         vm.prank(user);
         vm.expectRevert(OrnamentNFT.OrnamentNotRegistered.selector);
@@ -220,7 +179,7 @@ contract OrnamentNFTTest is Test {
 
         // Check payment was collected
         assertEq(paymentToken.balanceOf(address(ornament)), MINT_FEE);
-        assertEq(paymentToken.balanceOf(user), 1000 * 10**18 - MINT_FEE);
+        assertEq(paymentToken.balanceOf(user), 1000 * 10 ** 18 - MINT_FEE);
 
         // Check next custom token ID incremented
         assertEq(ornament.nextCustomTokenId(), customTokenId + 1);
@@ -258,16 +217,10 @@ contract OrnamentNFTTest is Test {
         uint256 deadline = block.timestamp - 1; // Expired
         uint256 nonce = ornament.nonces(user);
 
-        bytes memory signature = _createOrnamentSignature(
-            user, ORNAMENT_ID, deadline, nonce
-        );
+        bytes memory signature = _createOrnamentSignature(user, ORNAMENT_ID, deadline, nonce);
 
-        OrnamentNFT.OrnamentMintPermit memory permit = OrnamentNFT.OrnamentMintPermit({
-            to: user,
-            tokenId: ORNAMENT_ID,
-            deadline: deadline,
-            nonce: nonce
-        });
+        OrnamentNFT.OrnamentMintPermit memory permit =
+            OrnamentNFT.OrnamentMintPermit({to: user, tokenId: ORNAMENT_ID, deadline: deadline, nonce: nonce});
 
         vm.prank(user);
         vm.expectRevert(OrnamentNFT.ExpiredDeadline.selector);
@@ -278,16 +231,10 @@ contract OrnamentNFTTest is Test {
         uint256 deadline = block.timestamp + 1 hours;
         uint256 wrongNonce = 999;
 
-        bytes memory signature = _createOrnamentSignature(
-            user, ORNAMENT_ID, deadline, wrongNonce
-        );
+        bytes memory signature = _createOrnamentSignature(user, ORNAMENT_ID, deadline, wrongNonce);
 
-        OrnamentNFT.OrnamentMintPermit memory permit = OrnamentNFT.OrnamentMintPermit({
-            to: user,
-            tokenId: ORNAMENT_ID,
-            deadline: deadline,
-            nonce: wrongNonce
-        });
+        OrnamentNFT.OrnamentMintPermit memory permit =
+            OrnamentNFT.OrnamentMintPermit({to: user, tokenId: ORNAMENT_ID, deadline: deadline, nonce: wrongNonce});
 
         vm.prank(user);
         vm.expectRevert(OrnamentNFT.InvalidNonce.selector);
@@ -312,7 +259,7 @@ contract OrnamentNFTTest is Test {
 
     function testAdminCanUpdatePaymentSettings() public {
         address newToken = address(200);
-        uint256 newFee = 50 * 10**18;
+        uint256 newFee = 50 * 10 ** 18;
 
         vm.startPrank(admin);
         ornament.setPaymentToken(newToken);

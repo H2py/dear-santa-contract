@@ -16,7 +16,7 @@ interface IZRC20 {
     function allowance(address owner, address spender) external view returns (uint256);
     function approve(address spender, uint256 amount) external returns (bool);
     function transferFrom(address sender, address recipient, uint256 amount) external returns (bool);
-    
+
     /**
      * @notice Withdraw ZRC20 back to the connected chain
      * @param to Recipient address on the connected chain
@@ -24,14 +24,11 @@ interface IZRC20 {
      * @return success Whether the withdrawal was initiated
      */
     function withdraw(bytes memory to, uint256 amount) external returns (bool);
-    
+
     /**
      * @notice Get the gas fee required for withdrawal
      * @return gasFee The gas fee in ZRC20 tokens
      */
     function withdrawGasFee() external view returns (address, uint256);
 }
-
-
-
 

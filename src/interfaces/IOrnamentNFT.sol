@@ -23,6 +23,3 @@ interface IOrnamentNFT {
     function DOMAIN_SEPARATOR() external view returns (bytes32);
 }
 
-
-
-

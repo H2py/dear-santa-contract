@@ -6,9 +6,9 @@ pragma solidity ^0.8.24;
  * @notice Context information passed to onRevert when a cross-chain call fails
  */
 struct RevertContext {
-    address asset;          // The asset involved (ZRC20 on ZetaChain)
-    uint64 amount;          // Amount that failed to transfer
-    bytes revertMessage;    // Identifier/reason for the revert
+    address asset; // The asset involved (ZRC20 on ZetaChain)
+    uint64 amount; // Amount that failed to transfer
+    bytes revertMessage; // Identifier/reason for the revert
 }
 
 /**
@@ -23,7 +23,4 @@ interface Revertable {
      */
     function onRevert(RevertContext calldata context) external;
 }
-
-
-
 
