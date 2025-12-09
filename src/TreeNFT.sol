@@ -33,8 +33,20 @@ contract TreeNFT is
         uint256 nonce;
     }
 
+    struct AttachPermit {
+        address owner;          // Ornament owner who signed
+        uint256 treeId;         // Tree to attach ornament to
+        uint256 ornamentId;     // Ornament token ID
+        uint256 deadline;       // Permit expiry time
+        uint256 nonce;          // Nonce for replay protection
+    }
+
     bytes32 private constant MINT_PERMIT_TYPEHASH = keccak256(
         "MintPermit(address to,uint256 treeId,uint256 backgroundId,string uri,uint256 deadline,uint256 nonce)"
+    );
+
+    bytes32 private constant ATTACH_PERMIT_TYPEHASH = keccak256(
+        "AttachPermit(address owner,uint256 treeId,uint256 ornamentId,uint256 deadline,uint256 nonce)"
     );
 
     address public signer;
@@ -184,16 +196,59 @@ contract TreeNFT is
     /// @param ornamentId The ornament token ID
     function addOrnamentToTreeFor(address user, uint256 treeId, uint256 ornamentId) external {
         if (msg.sender != universalApp) revert NotUniversalApp();
-        
+
         // Check tree exists (ownerOf reverts for non-existent tokens)
         ownerOf(treeId);
-        
+
         // Burn ornament from user (OrnamentNFT verifies ownership via _burn)
         IOrnamentNFT(ornamentNFT).burnForAttachment(user, ornamentId);
-        
+
         _treeOrnaments[treeId].push(ornamentId);
         uint256 index = _treeOrnaments[treeId].length - 1;
         emit OrnamentAttached(treeId, ornamentId, user, index);
+    }
+
+    /// @notice Attach ornament to tree using permit (gasless for user)
+    /// @dev User signs a permit, admin executes transaction and pays gas
+    /// @param permit The permit data containing owner, treeId, ornamentId, deadline, and nonce
+    /// @param signature The signature from the ornament owner
+    function attachWithPermit(AttachPermit calldata permit, bytes calldata signature) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        // Check deadline
+        if (block.timestamp > permit.deadline) revert ExpiredDeadline();
+
+        // Check nonce
+        if (permit.nonce != nonces[permit.owner]) revert InvalidNonce();
+
+        // Verify tree exists (ownerOf reverts for non-existent tokens)
+        ownerOf(permit.treeId);
+
+        // Verify signature using EIP-712
+        bytes32 structHash = keccak256(
+            abi.encode(
+                ATTACH_PERMIT_TYPEHASH,
+                permit.owner,
+                permit.treeId,
+                permit.ornamentId,
+                permit.deadline,
+                permit.nonce
+            )
+        );
+        bytes32 hash = _hashTypedDataV4(structHash);
+        address recovered = ECDSA.recover(hash, signature);
+
+        // Verify that the recovered address matches the permit owner
+        if (recovered != permit.owner) revert InvalidSignature();
+
+        // Increment nonce to prevent replay attacks
+        nonces[permit.owner]++;
+
+        // Burn ornament from permit owner (OrnamentNFT verifies ownership via _burn)
+        IOrnamentNFT(ornamentNFT).burnForAttachment(permit.owner, permit.ornamentId);
+
+        // Add ornament to tree
+        _treeOrnaments[permit.treeId].push(permit.ornamentId);
+        uint256 index = _treeOrnaments[permit.treeId].length - 1;
+        emit OrnamentAttached(permit.treeId, permit.ornamentId, permit.owner, index);
     }
 
     function setDisplayOrder(uint256 treeId, uint256[] calldata newOrder) external {
