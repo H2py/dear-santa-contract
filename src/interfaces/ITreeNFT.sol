@@ -15,7 +15,16 @@ interface ITreeNFT {
         uint256 nonce;
     }
 
+    struct AttachPermit {
+        address owner;
+        uint256 treeId;
+        uint256 ornamentId;
+        uint256 deadline;
+        uint256 nonce;
+    }
+
     function mintWithSignature(MintPermit calldata permit, bytes calldata signature) external;
+    function attachWithPermit(AttachPermit calldata permit, bytes calldata signature) external;
     function addOrnamentToTree(uint256 treeId, uint256 ornamentId) external;
     function addOrnamentToTreeFor(address user, uint256 treeId, uint256 ornamentId) external;
     function ownerOf(uint256 tokenId) external view returns (address);

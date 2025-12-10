@@ -151,16 +151,17 @@ contract UniversalApp is Initializable, UniversalContract, Revertable, AccessCon
     }
 
     /**
-     * @notice Handle ornament attachment to tree
-     * @param data Encoded (user, treeId, ornamentId)
+     * @notice Handle ornament attachment to tree with permit signature
+     * @param data Encoded (AttachPermit, signature)
      */
     function _handleAddOrnament(bytes calldata data) internal {
-        (address user, uint256 treeId, uint256 ornamentId) = abi.decode(data, (address, uint256, uint256));
+        (ITreeNFT.AttachPermit memory permit, bytes memory signature) =
+            abi.decode(data, (ITreeNFT.AttachPermit, bytes));
 
-        // Call TreeNFT.addOrnamentToTreeFor which burns the ornament on behalf of user
-        ITreeNFT(treeNFT).addOrnamentToTreeFor(user, treeId, ornamentId);
+        // Call TreeNFT.attachWithPermit with signature verification
+        ITreeNFT(treeNFT).attachWithPermit(permit, signature);
 
-        emit OrnamentAttachedCrossChain(user, treeId, ornamentId);
+        emit OrnamentAttachedCrossChain(permit.owner, permit.treeId, permit.ornamentId);
     }
 
     // ===== Revertable Implementation =====
