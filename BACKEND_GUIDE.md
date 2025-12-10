@@ -9,7 +9,7 @@
 3. [게임 룰](#게임-룰)
 4. [Tree NFT 민팅](#tree-nft-민팅)
 5. [Ornament NFT 무료 뽑기](#ornament-nft-무료-뽑기)
-6. [Ornament NFT 유료 커스텀](#ornament-nft-유료-커스텀)
+6. [Ornament NFT 커스텀 (관리자 전용)](#ornament-nft-커스텀-관리자-전용)
 7. [오너먼트 장착 (소각)](#오너먼트-장착-소각)
 8. [크로스체인 호출 (Base → ZetaChain)](#크로스체인-호출-base--zetachain)
 9. [Nonce 관리](#nonce-관리)
@@ -119,7 +119,7 @@ const CONTRACTS = {
 
 ### Ornament NFT
 - **무료 뽑기**: 관리자가 등록한 오너먼트 중 백엔드가 랜덤 선택 (tokenId 0-1000)
-- **유료 커스텀**: ERC20 토큰으로 결제 후 원하는 이미지 업로드 (tokenId 1001+)
+- **커스텀 오너먼트 (관리자 전용)**: 관리자가 IPFS 등에 이미지를 업로드하고, 특정 유저에게 직접 민팅 (`adminMintCustomOrnament`) (tokenId 1001+)
 - **장착 = 소각**: 오너먼트를 트리에 장착하면 **NFT가 소각(burn)**됨
 - **선물 가능**: 누구나 다른 사람의 트리에 오너먼트 장착 가능
 - **Display**: 트리에 표시되는 오너먼트는 최대 MAX_DISPLAY(10)개
@@ -412,61 +412,42 @@ async function mintOrnamentCrossChain(permit: OrnamentMintPermit, signature: str
 
 ---
 
-## Ornament NFT 유료 커스텀
+## Ornament NFT 커스텀 (관리자 전용)
 
-유료 커스텀 오너먼트는 **Base USDC**로 결제 후 민팅합니다.
+> ⚠️ **중요 정책 변경**  
+>- 이전 버전에서는 사용자가 USDC로 결제해 커스텀 오너먼트를 민팅하는 모델이었지만,  
+>- **현재 버전에서는 오너먼트 커스텀 민팅은 전적으로 관리자 전용(on ZetaChain)**으로 변경되었습니다.  
+>- 사용자 입장에서는 "관리자가 만들어준 커스텀 오너먼트"만 받게 됩니다 (온체인 결제 없음).
 
-### Base에서 크로스체인 결제 (USDC)
+### 커스텀 오너먼트 ID 정책
+
+- `tokenId < 1001`: 등록형(registered) 오너먼트 — 무료 뽑기/관리자 선물용
+- `tokenId >= 1001`: 커스텀 오너먼트 — **관리자만 생성 가능**
+
+### 관리자 커스텀 오너먼트 민팅 플로우
+
+1. 관리자가 이미지 생성 후 IPFS 등 스토리지에 업로드 → `ornamentUri` 확보  
+2. 온체인에서 `adminMintCustomOrnament(to, ornamentUri)` 호출  
+3. 컨트랙트가 자동으로 `nextCustomTokenId`를 사용해 새 ID 발급 (1001부터 시작)
 
 ```typescript
-const GATEWAY_ABI = [
-  'function call(address receiver, bytes calldata payload, tuple(address revertAddress, bool callOnRevert, address abortAddress, bytes revertMessage, uint256 onRevertGasLimit) revertOptions) external payable',
-  'function depositAndCall(address receiver, uint256 amount, address asset, bytes calldata payload, tuple(address revertAddress, bool callOnRevert, address abortAddress, bytes revertMessage, uint256 onRevertGasLimit) revertOptions) external payable',
-];
+import { ethers } from 'ethers';
 
-async function mintCustomOrnamentCrossChain(
-  imageUri: string,
-  recipientAddress: string,
-  usdcAmount: bigint
-) {
-  const provider = new ethers.BrowserProvider(window.ethereum);
-  const signer = await provider.getSigner();
-  
-  // 1. Base USDC approve to Gateway
-  const usdc = new ethers.Contract(BASE_USDC_ADDRESS, ERC20_ABI, signer);
-  await (await usdc.approve(BASE_GATEWAY_ADDRESS, usdcAmount)).wait();
-  
-  // 2. 메시지 인코딩
-  const actionType = '0x03'; // ACTION_MINT_ORNAMENT_CUSTOM
-  const payload = ethers.AbiCoder.defaultAbiCoder().encode(
-    ['address', 'string'],
-    [recipientAddress, imageUri]
-  );
-  const message = ethers.concat([actionType, payload]);
-  
-  // 3. Gateway.depositAndCall 호출
-  const gateway = new ethers.Contract(BASE_GATEWAY_ADDRESS, GATEWAY_ABI, signer);
-  
-  const revertOptions = {
-    revertAddress: await signer.getAddress(),  // 실패 시 USDC 환불
-    callOnRevert: false,
-    abortAddress: ethers.ZeroAddress,
-    revertMessage: '0x',
-    onRevertGasLimit: 0n,
-  };
-  
-  const tx = await gateway.depositAndCall(
-    UNIVERSAL_APP_ADDRESS,  // ZetaChain UniversalApp
-    usdcAmount,              // USDC 수량
-    BASE_USDC_ADDRESS,       // Base USDC 주소
-    message,
-    revertOptions
-  );
-  
+async function mintAdminCustomOrnament(to: string, ornamentUri: string) {
+  const adminSigner = new ethers.Wallet(ADMIN_PRIVATE_KEY, provider); // DEFAULT_ADMIN_ROLE
+  const ornamentContract = new ethers.Contract(ORNAMENT_NFT_ADDRESS, ORNAMENT_ABI, adminSigner);
+
+  // to != 0x0 이어야 하고, 관리자만 호출 가능
+  const tx = await ornamentContract.adminMintCustomOrnament(to, ornamentUri);
   await tx.wait();
-  console.log('Cross-chain custom ornament mint initiated');
 }
 ```
+
+### 요약
+
+- **사용자 트랜잭션으로 커스텀 오너먼트를 직접 민팅하지 않습니다.**
+- 커스텀 오너먼트는 이벤트/프로모션/운영 이슈에 따라 관리자가 수동 또는 배치로 민팅합니다.
+- 백엔드는 커스텀 오너먼트 메타데이터와 수혜자 주소 목록만 관리하면 됩니다.
 
 ---
 
@@ -555,7 +536,6 @@ ornamentContract.on('OrnamentBurned', (from, ornamentId) => {
 |--------|------|------|
 | `ACTION_MINT_TREE` | `0x01` | 트리 민팅 |
 | `ACTION_MINT_ORNAMENT_FREE` | `0x02` | 무료 오너먼트 민팅 |
-| `ACTION_MINT_ORNAMENT_CUSTOM` | `0x03` | 유료 커스텀 오너먼트 민팅 |
 | `ACTION_ADD_ORNAMENT` | `0x04` | 오너먼트 장착 |
 
 ### Gateway 함수
@@ -830,8 +810,6 @@ await (await universalApp.setGateway(GATEWAY_ADDRESS)).wait();
 | `OrnamentNotRegistered` | 미등록 오너먼트 | 관리자가 오너먼트 등록 필요 |
 | `OrnamentAlreadyRegistered` | 이미 등록된 오너먼트 | 다른 ID 사용 |
 | `InvalidTokenId` | 커스텀 범위(≥1001) ID로 등록 시도 | 1000 이하의 ID 사용 |
-| `PaymentTokenNotSet` | 결제 토큰 미설정 | 관리자 설정 필요 |
-| `MintFeeNotSet` | 민팅 비용 미설정 | 관리자 설정 필요 |
 | `NotTreeNFT` | TreeNFT가 아닌 주소에서 burn 호출 | TreeNFT에서만 호출 가능 |
 | `InvalidAddress` | Zero address | 올바른 주소 사용 |
 
@@ -840,9 +818,7 @@ await (await universalApp.setGateway(GATEWAY_ADDRESS)).wait();
 | 에러 | 설명 | 대응 |
 |------|------|------|
 | `OnlyGateway` | Gateway가 아닌 주소에서 호출 | Gateway를 통해서만 호출 |
-| `InvalidAction` | 잘못된 action type | 올바른 action code 사용 (0x01-0x04) |
-| `InsufficientPayment` | 결제 금액 부족 | customOrnamentPrice 이상 전송 |
-| `TransferFailed` | 토큰 전송 실패 | 잔액/승인 확인 |
+| `InvalidAction` | 잘못된 action type | 올바른 action code 사용 (0x01, 0x02, 0x04) |
 | `InvalidAddress` | Zero address | 올바른 주소 사용 |
 
 ---
@@ -856,21 +832,15 @@ await (await universalApp.setGateway(GATEWAY_ADDRESS)).wait();
 - [ ] OrnamentNFT에 TreeNFT 주소 설정 (`OrnamentNFT.setTreeNFT`)
 - [ ] TreeNFT에 OrnamentNFT 주소 설정 (`TreeNFT.setOrnamentNFT`)
 - [ ] TreeNFT에 UniversalApp 주소 설정 (`TreeNFT.setUniversalApp`)
-- [ ] 결제 토큰 설정 (`OrnamentNFT.setPaymentToken`)
-- [ ] 민팅 비용 설정 (`OrnamentNFT.setMintFee`)
 - [ ] UniversalApp에 TreeNFT 주소 설정 (`UniversalApp.setTreeNFT`)
 - [ ] UniversalApp에 OrnamentNFT 주소 설정 (`UniversalApp.setOrnamentNFT`)
 - [ ] UniversalApp에 Gateway 주소 설정 (`UniversalApp.setGateway`)
-- [ ] UniversalApp에 USDC ZRC20 주소 설정 (`UniversalApp.setUsdcZRC20`)
-- [ ] UniversalApp에 커스텀 오너먼트 가격 설정 (`UniversalApp.setCustomOrnamentPrice`)
-- [ ] UniversalApp에 Fee Receiver 설정 (`UniversalApp.setFeeReceiver`)
 - [ ] Signer 주소 확인
 
 ### 테스트 (모두 크로스체인)
 
 - [ ] Tree 민팅
 - [ ] 무료 오너먼트 민팅
-- [ ] 유료 커스텀 오너먼트 민팅 (USDC 결제)
 - [ ] 오너먼트 장착 (소각 확인)
 - [ ] 선물 기능 (다른 사람 트리에 장착)
 - [ ] CCTX 상태 확인 (성공/실패)

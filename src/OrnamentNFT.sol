@@ -13,8 +13,6 @@ import {EIP712Upgradeable} from "@openzeppelin/contracts-upgradeable/utils/crypt
 import {Initializable} from "@openzeppelin/contracts-upgradeable/proxy/utils/Initializable.sol";
 import {UUPSUpgradeable} from "@openzeppelin/contracts-upgradeable/proxy/utils/UUPSUpgradeable.sol";
 import {ECDSA} from "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
-import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 
 contract OrnamentNFT is
     Initializable,
@@ -25,8 +23,6 @@ contract OrnamentNFT is
     EIP712Upgradeable,
     UUPSUpgradeable
 {
-    using SafeERC20 for IERC20;
-
     uint256 public constant CUSTOM_TOKEN_START = 1001;
 
     struct OrnamentMintPermit {
@@ -41,8 +37,6 @@ contract OrnamentNFT is
 
     address public signer;
     address public treeNFT;
-    IERC20 public paymentToken;
-    uint256 public mintFee;
     uint256 public nextCustomTokenId;
 
     mapping(address => uint256) public nonces;
@@ -55,8 +49,6 @@ contract OrnamentNFT is
     error OrnamentNotRegistered();
     error OrnamentAlreadyRegistered();
     error InvalidTokenId();
-    error PaymentTokenNotSet();
-    error MintFeeNotSet();
     error ArrayLengthMismatch();
     error InvalidAddress();
     error NotTreeNFT();
@@ -65,9 +57,6 @@ contract OrnamentNFT is
     event SignerUpdated(address indexed oldSigner, address indexed newSigner);
     event OrnamentRegistered(uint256 indexed tokenId, string uri);
     event OrnamentUriUpdated(uint256 indexed tokenId, string uri);
-    event PaymentTokenUpdated(address indexed token);
-    event MintFeeUpdated(uint256 fee);
-    event FeesWithdrawn(address indexed to, uint256 amount);
     event TreeNFTUpdated(address indexed treeNFT);
     event OrnamentBurned(address indexed from, uint256 indexed ornamentId);
 
@@ -110,22 +99,6 @@ contract OrnamentNFT is
         emit OrnamentMinted(permit.tokenId, permit.to);
     }
 
-    function mintCustomOrnament(string calldata ornamentUri) external {
-        if (address(paymentToken) == address(0)) revert PaymentTokenNotSet();
-        if (mintFee == 0) revert MintFeeNotSet();
-
-        // Collect payment
-        paymentToken.safeTransferFrom(msg.sender, address(this), mintFee);
-
-        // Mint custom ornament
-        uint256 tokenId = nextCustomTokenId++;
-        _mint(msg.sender, tokenId, 1, "");
-        _setURI(tokenId, ornamentUri);
-        ornamentRegistered[tokenId] = true;
-
-        emit OrnamentMinted(tokenId, msg.sender);
-    }
-
     function setSigner(address _signer) external onlyRole(DEFAULT_ADMIN_ROLE) {
         if (_signer == address(0)) revert InvalidAddress();
         address oldSigner = signer;
@@ -161,19 +134,8 @@ contract OrnamentNFT is
         emit OrnamentUriUpdated(tokenId, ornamentUri);
     }
 
-    function setPaymentToken(address token) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        if (token == address(0)) revert InvalidAddress();
-        paymentToken = IERC20(token);
-        emit PaymentTokenUpdated(token);
-    }
-
-    function setMintFee(uint256 fee) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        mintFee = fee;
-        emit MintFeeUpdated(fee);
-    }
-
     /// @notice Admin can mint an already registered ornament to any user (gift)
-    /// @dev Does not consume permit or take payment; only for registered tokenIds
+    /// @dev Does not consume permit or take payment; only for registered tokenIds (1-1000)
     /// @param to Recipient address
     /// @param tokenId Registered ornament id to mint
     function adminMintOrnament(address to, uint256 tokenId) external onlyRole(DEFAULT_ADMIN_ROLE) {
@@ -184,37 +146,25 @@ contract OrnamentNFT is
         emit OrnamentMinted(tokenId, to);
     }
 
-    function withdrawFees(address to) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        if (to == address(0)) revert InvalidAddress();
-        uint256 balance = paymentToken.balanceOf(address(this));
-        paymentToken.safeTransfer(to, balance);
-        emit FeesWithdrawn(to, balance);
-    }
-
-    function setTreeNFT(address _treeNFT) external onlyRole(DEFAULT_ADMIN_ROLE) {
-        if (_treeNFT == address(0)) revert InvalidAddress();
-        treeNFT = _treeNFT;
-        emit TreeNFTUpdated(_treeNFT);
-    }
-
-    /// @notice Mint custom ornament for a specific user (called by UniversalApp for cross-chain)
-    /// @dev Payment must be handled by caller before this function is called
+    /// @notice Admin creates and mints a new custom ornament to a user
+    /// @dev Creates a new custom ornament with a unique ID (1001+) and mints it
     /// @param to Recipient address
     /// @param ornamentUri IPFS URI for the custom ornament
-    function mintCustomOrnamentFor(address to, string calldata ornamentUri) external {
-        if (address(paymentToken) == address(0)) revert PaymentTokenNotSet();
-        if (mintFee == 0) revert MintFeeNotSet();
+    function adminMintCustomOrnament(address to, string calldata ornamentUri) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (to == address(0)) revert InvalidAddress();
 
-        // Collect payment from caller (UniversalApp or user directly)
-        paymentToken.safeTransferFrom(msg.sender, address(this), mintFee);
-
-        // Mint custom ornament
         uint256 tokenId = nextCustomTokenId++;
         _mint(to, tokenId, 1, "");
         _setURI(tokenId, ornamentUri);
         ornamentRegistered[tokenId] = true;
 
         emit OrnamentMinted(tokenId, to);
+    }
+
+    function setTreeNFT(address _treeNFT) external onlyRole(DEFAULT_ADMIN_ROLE) {
+        if (_treeNFT == address(0)) revert InvalidAddress();
+        treeNFT = _treeNFT;
+        emit TreeNFTUpdated(_treeNFT);
     }
 
     /// @notice Burn ornament when attaching to tree

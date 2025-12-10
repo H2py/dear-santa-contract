@@ -21,10 +21,6 @@ contract UniversalAppTest is Test {
     address public signerWallet;
     uint256 public signerPrivateKey;
     address public user = address(4);
-    address public feeReceiver = address(5);
-
-    address public mockUsdcZRC20 = address(100);
-    uint256 public customOrnamentPrice = 10 * 1e6; // 10 USDC
 
     uint256 constant TREE_ID = 1;
     uint256 constant BACKGROUND_ID = 100;
@@ -64,11 +60,9 @@ contract UniversalAppTest is Test {
         // Link contracts
         tree.setOrnamentNFT(address(ornament));
         ornament.setTreeNFT(address(tree));
+        tree.setUniversalApp(address(universalApp));
         universalApp.setTreeNFT(address(tree));
         universalApp.setOrnamentNFT(address(ornament));
-        universalApp.setFeeReceiver(feeReceiver);
-        universalApp.setUsdcZRC20(mockUsdcZRC20);
-        universalApp.setCustomOrnamentPrice(customOrnamentPrice);
 
         // Register background
         uint256[] memory bgIds = new uint256[](1);
@@ -163,15 +157,6 @@ contract UniversalAppTest is Test {
         assertEq(universalApp.ornamentNFT(), newOrnament);
     }
 
-    function testAdminCanSetPricing() public {
-        uint256 newPrice = 20 * 1e6;
-
-        vm.prank(admin);
-        universalApp.setCustomOrnamentPrice(newPrice);
-
-        assertEq(universalApp.customOrnamentPrice(), newPrice);
-    }
-
     function testNonAdminCannotSetContracts() public {
         vm.prank(user);
         vm.expectRevert();
@@ -190,12 +175,6 @@ contract UniversalAppTest is Test {
         vm.prank(admin);
         vm.expectRevert(UniversalApp.InvalidAddress.selector);
         universalApp.setOrnamentNFT(address(0));
-    }
-
-    function testRevertOnZeroAddressFeeReceiver() public {
-        vm.prank(admin);
-        vm.expectRevert(UniversalApp.InvalidAddress.selector);
-        universalApp.setFeeReceiver(address(0));
     }
 
     function testRevertOnZeroAddressGateway() public {
